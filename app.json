@@ -1,0 +1,13 @@
+{
+  "name": "Salesforce Metadata Deployer",
+  "description": "A stateless proxy for Salesforce Metadata retrieval, comparison, and deployment.",
+  "repository": "https://github.com/your-username/sfdc-deploy-tool",
+  "logo": "https://raw.githubusercontent.com/username/sfdc-deploy-tool/main/static/favicon.ico",
+  "keywords": ["salesforce", "metadata", "deploy", "proxy", "fastapi"],
+  "image": "heroku/python",
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}
