@@ -9,6 +9,9 @@ const tgtSession = document.getElementById('tgtSession');
 const packageXml = document.getElementById('packageXml');
 
 const btnRetrieve = document.getElementById('btnRetrieve');
+const btnDemo = document.getElementById('btnDemo');
+const btnReset = document.getElementById('btnReset');
+
 const retrieveStatus = document.getElementById('retrieveStatus');
 const retrieveProgress = document.getElementById('retrieveProgress');
 const retrieveMsg = document.getElementById('retrieveMsg');
@@ -206,6 +209,56 @@ btnRetrieve.addEventListener('click', async () => {
         btnRetrieve.disabled = false;
         btnRetrieve.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Fetch & Compare`;
     }
+});
+
+// Demo Data Flow
+btnDemo.addEventListener('click', () => {
+    changedFiles = [
+        {
+            name: "unpackaged/classes/AccountTriggerHandler.cls",
+            status: "Modified",
+            srcContent: "public class AccountTriggerHandler {\n    public static void afterInsert(List<Account> newAccounts) {\n        // Handled insertion logic\n        System.debug('Account created');\n    }\n}",
+            tgtContent: "public class AccountTriggerHandler {\n    public static void afterInsert(List<Account> newAccounts) {\n        // Old logic\n    }\n}"
+        },
+        {
+            name: "unpackaged/objects/Opportunity.object",
+            status: "Modified",
+            srcContent: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<CustomObject xmlns=\"http://soap.sforce.com/2006/04/metadata\">\n    <fields>\n        <fullName>Discount__c</fullName>\n        <type>Percent</type>\n    </fields>\n</CustomObject>",
+            tgtContent: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<CustomObject xmlns=\"http://soap.sforce.com/2006/04/metadata\">\n    <!-- Missing Discount field -->\n</CustomObject>"
+        },
+        {
+            name: "unpackaged/lwc/customDatatable/customDatatable.js",
+            status: "New",
+            srcContent: "import { LightningElement } from 'lwc';\n\nexport default class CustomDatatable extends LightningElement {\n    data = [];\n    columns = [{ label: 'Name', fieldName: 'name' }];\n}",
+            tgtContent: ""
+        }
+    ];
+
+    emptyState.classList.add('hidden');
+
+    diffCountBadge.textContent = `${changedFiles.length} files`;
+    renderDiffTable();
+    diffSection.classList.remove('hidden');
+    deployActionBar.style.display = 'flex';
+
+    btnDemo.classList.add('hidden');
+    btnReset.classList.remove('hidden');
+});
+
+// Reset Flow
+btnReset.addEventListener('click', () => {
+    changedFiles = [];
+    srcZip = null;
+    tgtZip = null;
+
+    diffSection.classList.add('hidden');
+    deployActionBar.style.display = 'none';
+    retrieveStatus.classList.add('hidden');
+    deployStatus.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+
+    btnReset.classList.add('hidden');
+    btnDemo.classList.remove('hidden');
 });
 
 async function compareZips(src, tgt) {
