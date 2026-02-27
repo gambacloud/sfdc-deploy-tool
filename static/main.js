@@ -11,6 +11,8 @@ const packageXml = document.getElementById('packageXml');
 const btnRetrieve = document.getElementById('btnRetrieve');
 const btnDemo = document.getElementById('btnDemo');
 const btnReset = document.getElementById('btnReset');
+const btnValidate = document.getElementById('btnValidate');
+const btnDeploy = document.getElementById('btnDeploy');
 
 const retrieveStatus = document.getElementById('retrieveStatus');
 const retrieveProgress = document.getElementById('retrieveProgress');
@@ -23,7 +25,6 @@ const diffCountBadge = document.getElementById('diffCountBadge');
 const selectAll = document.getElementById('selectAll');
 
 const deployActionBar = document.getElementById('deployActionBar');
-const btnDeploy = document.getElementById('btnDeploy');
 const deployStatus = document.getElementById('deployStatus');
 const deployProgress = document.getElementById('deployProgress');
 const deployMsg = document.getElementById('deployMsg');
@@ -379,14 +380,18 @@ closeModalBtn.onclick = () => {
 };
 
 // Deploy Flow
-btnDeploy.addEventListener('click', async () => {
+btnValidate.addEventListener('click', () => executeDeploy(true));
+btnDeploy.addEventListener('click', () => executeDeploy(false));
+
+async function executeDeploy(isCheckOnly) {
     const selectedIndexes = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => parseInt(cb.dataset.idx));
     if (selectedIndexes.length === 0) {
-        alert("Please select at least one component to deploy.");
+        alert("Please select at least one component to process.");
         return;
     }
 
     deployStatus.classList.remove('hidden');
+    btnValidate.disabled = true;
     btnDeploy.disabled = true;
 
     try {
@@ -447,7 +452,8 @@ btnDeploy.addEventListener('click', async () => {
                 sessionId: tgtSession.value,
                 zipBase64: base64Zip,
                 testLevel: testLevelInput.value,
-                testClasses: testClasses
+                testClasses: testClasses,
+                checkOnly: isCheckOnly
             })
         });
 
@@ -459,18 +465,20 @@ btnDeploy.addEventListener('click', async () => {
         const data = await res.json();
         const jobId = data.jobId;
 
-        setProgress(deployProgress, deployMsg, 50, `Deploy Job Queued (${jobId}). Polling status...`, false);
+        const actionStr = isCheckOnly ? "Validation" : "Deploy";
+        setProgress(deployProgress, deployMsg, 50, `${actionStr} Job Queued (${jobId}). Polling status...`, false);
 
-        await pollDeployStatus(jobId, tgtInstance.value, tgtSession.value);
+        await pollDeployStatus(jobId, tgtInstance.value, tgtSession.value, isCheckOnly);
 
     } catch (err) {
         setProgress(deployProgress, deployMsg, 100, err.message, true);
     } finally {
+        btnValidate.disabled = false;
         btnDeploy.disabled = false;
     }
-});
+}
 
-async function pollDeployStatus(jobId, instanceUrl, sessionId) {
+async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
     let done = false;
     while (!done) {
         await new Promise(r => setTimeout(r, 3000));
@@ -487,15 +495,16 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId) {
         if (!statusNode) continue;
 
         const status = statusNode.textContent;
-        setProgress(deployProgress, deployMsg, null, `Deploy Status: ${status}...`, false);
+        const actionStr = isCheckOnly ? "Validation" : "Deploy";
+        setProgress(deployProgress, deployMsg, null, `${actionStr} Status: ${status}...`, false);
 
         if (status === 'Succeeded' || status === 'Failed' || status === 'Canceled') {
             done = true;
             if (status === 'Succeeded') {
-                setProgress(deployProgress, deployMsg, 100, 'Deployment Succeeded! 🎉', false);
+                setProgress(deployProgress, deployMsg, 100, `${actionStr} Succeeded! 🎉`, false);
             } else {
                 const errNode = xmlDoc.getElementsByTagName("problem")[0] || xmlDoc.getElementsByTagName("met:problem")[0];
-                const msg = errNode ? errNode.textContent : "Deployment Failed. Check Salesforce for details.";
+                const msg = errNode ? errNode.textContent : `${actionStr} Failed. Check Salesforce for details.`;
                 setProgress(deployProgress, deployMsg, 100, msg, true);
             }
         }

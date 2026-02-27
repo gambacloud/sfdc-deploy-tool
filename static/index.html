@@ -147,8 +147,18 @@
                             <option value="RunSpecifiedTests">Run Specified Tests</option>
                             <option value="RunLocalTests">Run Local Tests</option>
                         </select>
+                        <button id="btnValidate"
+                            class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+                            title="Validates the metadata components without saving them to the org">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            Validate Selected
+                        </button>
                         <button id="btnDeploy"
-                            class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50">
+                            class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
+                            title="Deploys and saves the metadata components to the org">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M13 10V3L4 14h7v7l9-11h-7z"></path>

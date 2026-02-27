@@ -118,6 +118,7 @@ class DeployRequest(BaseModel):
     zipBase64: str
     testLevel: str = "NoTestRun"
     testClasses: List[str] = []
+    checkOnly: bool = True
 
 @app.post("/api/proxy/deploy")
 async def deploy_metadata(req: DeployRequest):
@@ -144,7 +145,7 @@ async def deploy_metadata(req: DeployRequest):
              <met:DeployOptions>
                 <met:allowMissingFiles>false</met:allowMissingFiles>
                 <met:autoUpdatePackage>false</met:autoUpdatePackage>
-                <met:checkOnly>false</met:checkOnly>
+                <met:checkOnly>{str(req.checkOnly).lower()}</met:checkOnly>
                 <met:ignoreWarnings>false</met:ignoreWarnings>
                 <met:performRetrieve>false</met:performRetrieve>
                 <met:purgeOnDelete>false</met:purgeOnDelete>
