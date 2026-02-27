@@ -360,11 +360,16 @@ function showDiff(idx) {
     // Check if body has dark class
     const currentIsDark = document.documentElement.classList.contains('dark');
 
-    const diffHtml = Diff2Html.html(patch, {
+    const diffHtml = Diff2HtmlUI ? Diff2HtmlUI.html(patch, {
         drawFileList: false,
         matching: 'lines',
         outputFormat: 'side-by-side',
         theme: currentIsDark ? 'dark' : 'light' // Use auto theme feature of diff2html
+    }) : diff2html.html(patch, {
+        drawFileList: false,
+        matching: 'lines',
+        outputFormat: 'side-by-side',
+        theme: currentIsDark ? 'dark' : 'light'
     });
 
     diffViewer.innerHTML = diffHtml;
