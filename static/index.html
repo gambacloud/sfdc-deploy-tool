@@ -10,10 +10,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/7.0.0/diff.min.js"></script>
     <link rel="stylesheet" type="text/css"
         href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js for lightweight UI state -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -232,25 +234,91 @@
 
                 <hr class="border-gray-100 dark:border-gray-700">
 
-                <!-- Manifest -->
-                <div class="space-y-3 flex-1 flex flex-col">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Package Manifest</h3>
+                <!-- Manifest UI (Alpine.js State) -->
+                <div class="flex-1 flex flex-col min-h-0" x-data="manifestBuilder()">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Retrieval Scope</h3>
                         <div class="flex gap-1">
-                            <button
-                                class="preset-btn px-2 py-1 text-[10px] font-medium rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors"
-                                data-preset="code">Code</button>
-                            <button
-                                class="preset-btn px-2 py-1 text-[10px] font-medium rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors"
-                                data-preset="config">Config</button>
+                            <button @click="loadPreset('code')"
+                                class="px-2 py-1 text-[10px] font-medium rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors">Code</button>
+                            <button @click="loadPreset('config')"
+                                class="px-2 py-1 text-[10px] font-medium rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors">Config</button>
+                            <button @click="selectedTypes = []"
+                                class="px-2 py-1 text-[10px] font-medium rounded bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 transition-colors ml-2">Clear</button>
                         </div>
                     </div>
-                    <textarea id="packageXml"
-                        class="w-full flex-1 min-h-[200px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-xs font-mono text-gray-800 dark:text-gray-300 focus:ring-2 focus:ring-salesforce/50 outline-none transition-all resize-none"><types>
-    <members>*</members>
-    <name>ApexClass</name>
-</types>
-<version>58.0</version></textarea>
+
+                    <!-- Search & Picklist Container -->
+                    <div
+                        class="flex flex-col flex-1 min-h-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-shrink-0 mb-4 h-64">
+
+                        <!-- Search Bar -->
+                        <div
+                            class="p-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50">
+                            <div class="relative">
+                                <svg class="w-4 h-4 absolute left-2.5 top-2 text-gray-400" fill="none"
+                                    stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                </svg>
+                                <input x-model="searchQuery" type="text" placeholder="Search metadata types..."
+                                    class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-xs pl-8 pr-3 py-1.5 focus:ring-1 focus:ring-salesforce outline-none dark:placeholder-gray-500">
+                            </div>
+                        </div>
+
+                        <!-- Types List (Scrollable) -->
+                        <div class="flex-1 overflow-y-auto p-1 text-sm">
+                            <template x-for="type in filteredAvailableTypes" :key="type">
+                                <div @click="addType(type)"
+                                    class="flex items-center justify-between px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded cursor-pointer group">
+                                    <span class="text-gray-700 dark:text-gray-300 text-xs" x-text="type"></span>
+                                    <svg class="w-4 h-4 text-gray-300 dark:text-gray-600 group-hover:text-salesforce transition-colors"
+                                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                    </svg>
+                                </div>
+                            </template>
+                            <div x-show="filteredAvailableTypes.length === 0"
+                                class="text-center py-4 text-xs text-gray-400">
+                                No matching types found
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Types (Tags) -->
+                    <div class="flex-1 flex flex-col min-h-0">
+                        <label class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 flex justify-between">
+                            <span>Selected For Retrieval</span>
+                            <span x-text="selectedTypes.length + ' types'" class="text-salesforce"></span>
+                        </label>
+                        <div
+                            class="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                            <div class="flex flex-wrap gap-2">
+                                <template x-for="type in selectedTypes" :key="type">
+                                    <span
+                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+                                        <span x-text="type"></span>
+                                        <button @click="removeType(type)"
+                                            class="hover:text-blue-900 dark:hover:text-blue-100 focus:outline-none">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor"
+                                                viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M6 18L18 6M6 6l12 12"></path>
+                                            </svg>
+                                        </button>
+                                    </span>
+                                </template>
+                                <div x-show="selectedTypes.length === 0"
+                                    class="text-xs text-gray-400 italic py-1 w-full text-center">
+                                    No types selected
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hidden input to store generated XML for main.js to read -->
+                    <textarea id="packageXml" class="hidden" x-bind:value="generatedXml"></textarea>
                 </div>
 
             </div>

@@ -42,79 +42,77 @@ let changedFiles = [];
 
 // Presets Config
 const presets = {
-    code: `<types>
-    <members>*</members>
-    <name>ApexClass</name>
-</types>
-<types>
-    <members>*</members>
-    <name>ApexPage</name>
-</types>
-<types>
-    <members>*</members>
-    <name>ApexComponent</name>
-</types>
-<types>
-    <members>*</members>
-    <name>ApexTrigger</name>
-</types>
-<types>
-    <members>*</members>
-    <name>AuraDefinitionBundle</name>
-</types>
-<types>
-    <members>*</members>
-    <name>LightningComponentBundle</name>
-</types>
-<version>58.0</version>`,
-    nocode: `<types>
-    <members>*</members>
-    <name>Flow</name>
-</types>
-<types>
-    <members>*</members>
-    <name>ValidationRule</name>
-</types>
-<version>58.0</version>`,
-    config: `<types>
-    <members>*</members>
-    <name>CustomLabels</name>
-</types>
-<types>
-    <members>*</members>
-    <name>CustomMetadata</name>
-</types>
-<types>
-    <members>*</members>
-    <name>CustomField</name>
-</types>
-<version>58.0</version>`
+    code: ['ApexClass', 'ApexComponent', 'ApexPage', 'ApexTrigger', 'AuraDefinitionBundle', 'LightningComponentBundle'],
+    nocode: ['Flow', 'ValidationRule'],
+    config: ['CustomLabels', 'CustomMetadata', 'CustomField'],
+    empty: []
 };
 
-const presetButtons = document.querySelectorAll('.preset-btn');
-console.log(`[Salesforce Deployer] Found ${presetButtons.length} preset buttons on the page.`);
+// --- Alpine.js Component for Manifest Builder ---
+document.addEventListener('alpine:init', () => {
+    Alpine.data('manifestBuilder', () => ({
+        searchQuery: '',
 
-presetButtons.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        const type = e.currentTarget.dataset.preset;
-        console.log(`[Salesforce Deployer] Preset button clicked: ${type}`);
+        // Comprehensive list of common Salesforce Metadata Types
+        allAvailableTypes: [
+            'ApexClass', 'ApexComponent', 'ApexPage', 'ApexTrigger', 'AppMenu', 'ApprovalProcess', 'AssignmentRules',
+            'AuraDefinitionBundle', 'AuthProvider', 'AutoResponseRules', 'Certificate', 'CleanDataService',
+            'Community', 'CompactLayout', 'ConnectedApp', 'ContentAsset', 'CorsWhitelistOrigin', 'CustomApplication',
+            'CustomApplicationComponent', 'CustomField', 'CustomLabels', 'CustomMetadata', 'CustomObject',
+            'CustomObjectTranslation', 'CustomPageWebLink', 'CustomPermission', 'CustomSite', 'CustomTab',
+            'Dashboard', 'DataCategoryGroup', 'DelegateGroup', 'Document', 'DuplicateRule', 'EmailTemplate',
+            'EntitlementProcess', 'EntitlementTemplate', 'EscalationRules', 'ExternalDataSource', 'FlexiPage',
+            'Flow', 'FlowDefinition', 'GlobalValueSet', 'GlobalValueSetTranslation', 'Group', 'HomePageComponent',
+            'HomePageLayout', 'Layout', 'Letterhead', 'LightningComponentBundle', 'ListView', 'MatchingRules',
+            'MilestoneType', 'NamedCredential', 'Network', 'PathAssistant', 'PermissionSet', 'PermissionSetGroup',
+            'PlatformCachePartition', 'PlatformEventChannel', 'PostTemplate', 'PresenceDeclineReason',
+            'PresenceUserConfig', 'Profile', 'ProfilePasswordPolicy', 'ProfileSessionSetting', 'Queue',
+            'QueueRoutingConfig', 'QuickAction', 'RecordType', 'RemoteSiteSetting', 'Report', 'ReportType',
+            'Role', 'SamlSsoConfig', 'Scontrol', 'ServiceChannel', 'ServicePresenceStatus', 'SharingRules',
+            'StandardValueSet', 'StandardValueSetTranslation', 'StaticResource', 'TransactionSecurityPolicy',
+            'Translations', 'ValidationRule', 'WebLink', 'Workflow'
+        ].sort(),
 
-        if (presets[type]) {
-            const packageXmlElem = document.getElementById('packageXml');
-            if (packageXmlElem) {
-                packageXmlElem.value = presets[type];
-                // Also trigger an input event in case anything relies on it
-                packageXmlElem.dispatchEvent(new Event('input'));
-                console.log(`[Salesforce Deployer] Successfully updated package.xml for preset: ${type}`);
-            } else {
-                console.error("[Salesforce Deployer] Error: Could not find 'packageXml' textarea element.");
+        selectedTypes: ['ApexClass'], // Default selection
+
+        get filteredAvailableTypes() {
+            if (this.searchQuery === '') return this.allAvailableTypes;
+            const q = this.searchQuery.toLowerCase();
+            return this.allAvailableTypes.filter(t => t.toLowerCase().includes(q));
+        },
+
+        get generatedXml() {
+            if (this.selectedTypes.length === 0) {
+                return `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n  <version>58.0</version>\n</Package>`;
             }
-        } else {
-            console.warn(`[Salesforce Deployer] Warning: No preset found for type: ${type}`);
-        }
-    });
-});
 
+            let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
+            this.selectedTypes.forEach(type => {
+                xml += `  <types>\n    <members>*</members>\n    <name>${type}</name>\n  </types>\n`;
+            });
+            xml += `  <version>58.0</version>\n</Package>`;
+            return xml;
+        },
+
+        addType(type) {
+            if (!this.selectedTypes.includes(type)) {
+                this.selectedTypes.push(type);
+                this.selectedTypes.sort();
+            }
+        },
+
+        removeType(type) {
+            this.selectedTypes = this.selectedTypes.filter(t => t !== type);
+        },
+
+        loadPreset(presetName) {
+            if (presets[presetName]) {
+                this.selectedTypes = [...presets[presetName]].sort();
+            }
+        }
+    }));
+});
+// ------------------------------------------------
 // Utils
 function extractZipFromSoap(xmlString) {
     const parser = new DOMParser();
@@ -360,12 +358,7 @@ function showDiff(idx) {
     // Check if body has dark class
     const currentIsDark = document.documentElement.classList.contains('dark');
 
-    const diffHtml = Diff2HtmlUI ? Diff2HtmlUI.html(patch, {
-        drawFileList: false,
-        matching: 'lines',
-        outputFormat: 'side-by-side',
-        theme: currentIsDark ? 'dark' : 'light' // Use auto theme feature of diff2html
-    }) : diff2html.html(patch, {
+    const diffHtml = Diff2Html.html(patch, {
         drawFileList: false,
         matching: 'lines',
         outputFormat: 'side-by-side',
