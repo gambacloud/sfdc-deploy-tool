@@ -217,8 +217,8 @@ btnDemo.addEventListener('click', () => {
         {
             name: "unpackaged/classes/AccountTriggerHandler.cls",
             status: "Modified",
-            srcContent: "public class AccountTriggerHandler {\n    public static void afterInsert(List<Account> newAccounts) {\n        // Handled insertion logic\n        System.debug('Account created');\n    }\n}",
-            tgtContent: "public class AccountTriggerHandler {\n    public static void afterInsert(List<Account> newAccounts) {\n        // Old logic\n    }\n}"
+            srcContent: "public class AccountTriggerHandler {\n    public static void beforeInsert(List<Account> newAccounts) {\n        for(Account acc : newAccounts) {\n            if(acc.Industry == 'Technology') {\n                acc.Rating = 'Hot';\n                acc.Description = 'Tech Account - Priority';\n            }\n        }\n    }\n    \n    public static void afterInsert(List<Account> newAccounts) {\n        // Call external tracking service\n        IntegrationService.notifyNewAccounts(newAccounts);\n        System.debug('Account creation fully processed');\n    }\n}\n",
+            tgtContent: "public class AccountTriggerHandler {\n    public static void beforeInsert(List<Account> newAccounts) {\n        for(Account acc : newAccounts) {\n            if(acc.Industry == 'Technology') {\n                acc.Rating = 'Hot';\n            }\n        }\n    }\n    \n    public static void afterInsert(List<Account> newAccounts) {\n        // Old logic\n        System.debug('Account created');\n    }\n}\n"
         },
         {
             name: "unpackaged/objects/Opportunity.object",
