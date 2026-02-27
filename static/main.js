@@ -14,10 +14,12 @@ const retrieveProgress = document.getElementById('retrieveProgress');
 const retrieveMsg = document.getElementById('retrieveMsg');
 
 const diffSection = document.getElementById('diffSection');
+const emptyState = document.getElementById('emptyState');
 const diffList = document.getElementById('diffList');
 const diffCountBadge = document.getElementById('diffCountBadge');
 const selectAll = document.getElementById('selectAll');
 
+const deployActionBar = document.getElementById('deployActionBar');
 const btnDeploy = document.getElementById('btnDeploy');
 const deployStatus = document.getElementById('deployStatus');
 const deployProgress = document.getElementById('deployProgress');
@@ -170,7 +172,9 @@ btnRetrieve.addEventListener('click', async () => {
     }
 
     retrieveStatus.classList.remove('hidden');
+    emptyState.classList.add('hidden');
     diffSection.classList.add('hidden');
+    deployActionBar.style.display = 'none';
     btnRetrieve.disabled = true;
     btnRetrieve.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Processing...`;
 
@@ -194,6 +198,7 @@ btnRetrieve.addEventListener('click', async () => {
         diffCountBadge.textContent = `${changedFiles.length} files`;
         renderDiffTable();
         diffSection.classList.remove('hidden');
+        deployActionBar.style.display = 'flex';
 
     } catch (err) {
         setProgress(retrieveProgress, retrieveMsg, 100, err.message, true);
@@ -227,41 +232,60 @@ function renderDiffTable() {
 
     if (changedFiles.length === 0) {
         diffList.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500">No differences found. Orgs are perfectly synced for this manifest.</td></tr>';
+        deployActionBar.style.display = 'none';
         return;
     }
 
+    const folderToType = {
+        'classes': 'ApexClass', 'pages': 'ApexPage', 'components': 'ApexComponent',
+        'triggers': 'ApexTrigger', 'aura': 'AuraDefinitionBundle', 'lwc': 'LightningComponentBundle',
+        'objects': 'CustomObject', 'layouts': 'Layout', 'permissionsets': 'PermissionSet',
+        'profiles': 'Profile', 'customMetadata': 'CustomMetadata', 'labels': 'CustomLabels'
+    };
+
     changedFiles.forEach((f, idx) => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors';
+        tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer group';
+        tr.onclick = (e) => {
+            // Prevent opening modal if clicking the checkbox
+            if (e.target.tagName.toLowerCase() === 'input') return;
+            showDiff(idx);
+        };
 
         const tdCheck = document.createElement('td');
-        tdCheck.className = 'p-4 w-4';
-        tdCheck.innerHTML = `<div class="flex items-center"><input type="checkbox" class="file-checkbox w-4 h-4 text-salesforce bg-white border-gray-300 rounded focus:ring-salesforce dark:focus:ring-salesforce dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer" data-idx="${idx}"></div>`;
+        tdCheck.className = 'px-6 py-4 whitespace-nowrap';
+        tdCheck.innerHTML = `<input type="checkbox" class="file-checkbox w-4 h-4 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer" data-idx="${idx}">`;
 
         const tdStatus = document.createElement('td');
         tdStatus.className = 'px-6 py-4 whitespace-nowrap';
         if (f.status === 'New') {
-            tdStatus.innerHTML = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800/50"><svg class="-ml-0.5 mr-1 h-3 w-3 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"></circle></svg> New</span>`;
+            tdStatus.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800/50 uppercase tracking-wide">New</span>`;
         } else {
-            tdStatus.innerHTML = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50"><svg class="-ml-0.5 mr-1 h-3 w-3 text-amber-500 dark:text-amber-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"></circle></svg> Modified</span>`;
+            tdStatus.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 uppercase tracking-wide">Modified</span>`;
         }
 
-        const tdName = document.createElement('td');
-        tdName.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100';
-        tdName.textContent = f.name.replace('unpackaged/', '');
+        const rawName = f.name.replace('unpackaged/', '');
+        const parts = rawName.split('/');
+        let typeName = 'Unknown';
+        let compName = rawName;
 
-        const tdAction = document.createElement('td');
-        tdAction.className = 'px-6 py-4 whitespace-nowrap text-right text-sm font-medium';
-        const btn = document.createElement('button');
-        btn.textContent = 'View Diff';
-        btn.className = 'text-salesforce hover:text-blue-800 dark:hover:text-blue-300 transition-colors bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded border border-blue-100 dark:border-blue-800/30';
-        btn.onclick = () => showDiff(idx);
-        tdAction.appendChild(btn);
+        if (parts.length >= 2) {
+            typeName = folderToType[parts[0]] || parts[0];
+            compName = parts.slice(1).join('/');
+        }
+
+        const tdType = document.createElement('td');
+        tdType.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono';
+        tdType.textContent = typeName;
+
+        const tdName = document.createElement('td');
+        tdName.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-salesforce transition-colors';
+        tdName.innerHTML = `<div class="flex items-center gap-2">${compName} <svg class="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></div>`;
 
         tr.appendChild(tdCheck);
         tr.appendChild(tdStatus);
+        tr.appendChild(tdType);
         tr.appendChild(tdName);
-        tr.appendChild(tdAction);
 
         diffList.appendChild(tr);
     });
