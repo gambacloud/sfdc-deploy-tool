@@ -7,15 +7,25 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
+import sys
+
+if getattr(sys, 'frozen', False):
+    # Running in a PyInstaller bundle
+    base_dir = sys._MEIPASS
+else:
+    # Running in normal Python environment
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+static_dir = os.path.join(base_dir, "static")
 
 app = FastAPI()
 
 # Mount frontend files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 def index():
-    return FileResponse("static/index.html")
+    return FileResponse(os.path.join(static_dir, "index.html"))
 
 class RetrieveRequest(BaseModel):
     instanceUrl: str
