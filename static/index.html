@@ -11,6 +11,8 @@
     <link rel="stylesheet" type="text/css"
         href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
+    <!-- Screenshot tool -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -167,7 +169,18 @@
                         </button>
                     </div>
                 </div>
-                <div>
+                <div class="flex items-center gap-1">
+                    <button id="screenshotBtn"
+                        class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                        title="Copy Screenshot to Clipboard">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z">
+                            </path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </button>
                     <button id="themeToggleBtn"
                         class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none">
                         <svg id="themeToggleLightIcon" class="hidden w-5 h-5" fill="none" stroke="currentColor"
@@ -506,6 +519,51 @@
         // Close modal on background click
         document.getElementById('diffModalBg').addEventListener('click', () => {
             document.getElementById('diffModal').classList.add('hidden');
+        });
+
+        // Screenshot logic
+        const screenshotBtn = document.getElementById('screenshotBtn');
+        screenshotBtn.addEventListener('click', async () => {
+            try {
+                const originalIcon = screenshotBtn.innerHTML;
+
+                // Show loading spinner
+                screenshotBtn.innerHTML = `<svg class="animate-spin w-5 h-5 text-salesforce" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+
+                // Allow UI to update with spinner
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                const canvas = await html2canvas(document.body, {
+                    backgroundColor: document.documentElement.classList.contains('dark') ? '#111827' : '#f9fafb',
+                    windowWidth: document.body.scrollWidth,
+                    windowHeight: document.body.scrollHeight,
+                });
+
+                canvas.toBlob(async (blob) => {
+                    if (!blob) throw new Error("Canvas capture failed");
+
+                    try {
+                        const clipboardItem = new ClipboardItem({ "image/png": blob });
+                        await navigator.clipboard.write([clipboardItem]);
+
+                        // Show success checkmark
+                        screenshotBtn.innerHTML = `<svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+                    } catch (err) {
+                        console.error('Clipboard write error:', err);
+                        alert('Could not save to clipboard. Check browser permissions.');
+                    }
+
+                    // Reset icon after 2 seconds
+                    setTimeout(() => {
+                        screenshotBtn.innerHTML = originalIcon;
+                    }, 2000);
+                }, "image/png");
+
+            } catch (err) {
+                console.error("Screenshot failed:", err);
+                screenshotBtn.innerHTML = originalIcon;
+                alert("An error occurred while taking the screenshot.");
+            }
         });
     </script>
 </body>
