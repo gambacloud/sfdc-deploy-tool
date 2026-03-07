@@ -2,6 +2,13 @@
 
 A stateless proxy for comparing and deploying Salesforce metadata using Heroku's Eco tier. 
 
+## 🚀 TL;DR: מה חדש? (What's New)
+- **🍒 פריסה סלקטיבית (Cherry-picking)**: בחירת קבצים ספציפיים לפריסה (מתוך חבילת ההשוואה/הפיתוח).
+- **⚙️ הגדרות טסטים (Test Levels)**: בחירת רמת בדיקה (למשל: `RunLocalTests` או `RunSpecifiedTests`) בהפעלה ישירה מהממשק.
+- **✅ ולידציה בלבד (Check-Only)**: כפתור Validate לבדיקת תקינות הפריסה והטסטים (ללא ביצוע שינויים בפועל בארגון המטרה).
+
+![הדגמת וידוא ופריסה](docs/demo_deployment.png)
+
 ## Features
 - **Stateless Proxy**: FastAPI streams large XML and Base64 ZIP payloads directly between Salesforce and the browser without saving anything to the Heroku filesystem.
 - **Client-Side Processing**: Browser uses JSZip and diff2html to compare metadata before deployment.
