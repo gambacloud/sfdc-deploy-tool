@@ -6,8 +6,20 @@ from fastapi import FastAPI, Request, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import asyncio
+import urllib.parse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+import asyncio
+import urllib.parse
 from typing import List, Optional
+import subprocess
+import json
 import sys
+import os
+import httpx
 
 if getattr(sys, 'frozen', False):
     # Running in a PyInstaller bundle
@@ -184,6 +196,11 @@ async def deploy_metadata(req: DeployRequest):
 
 
 @app.get("/api/proxy/status/{job_id}")
+async def check_deploy_status(job_id: str, instanceUrl: str, sessionId: str, apiVersion: str = "58.0"):
+    """Checks the status of an asynchronous metadata API job"""
+    status_soap = ... # ...
+    # ... Wait, actually let's just leave the chunk above untouched, it's safer to add this code higher up.
+    pass
 async def check_deploy_status(
     job_id: str, 
     instanceUrl: str = Query(...), 
@@ -219,3 +236,139 @@ async def check_deploy_status(
             async for chunk in r.aiter_raw():
                 yield chunk
     return StreamingResponse(stream_response(), media_type="text/xml")
+
+
+# --- REST API Proxy (Tooling API) ---
+
+@app.get("/api/proxy/tooling/query")
+async def tooling_query(instanceUrl: str, sessionId: str, q: str):
+    """Executes a SOQL query against the Salesforce Tooling API"""
+    if not instanceUrl or not sessionId or not q:
+        raise HTTPException(status_code=400, detail="Missing instanceUrl, sessionId, or query 'q'")
+        
+    url = f"{instanceUrl.rstrip('/')}/services/data/v58.0/tooling/query"
+    headers = {
+        "Authorization": f"Bearer {sessionId}",
+        "Accept": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, params={"q": q}, headers=headers)
+        
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+            
+        return res.json()
+
+
+# --- SFDX CLI Integration (Org Manager) ---
+
+async def run_cli_command(command: str) -> tuple[int, str, str]:
+    """Runs a shell command asynchronously in a thread and returns exit code, stdout, stderr"""
+    loop = asyncio.get_event_loop()
+    
+    # Ensure standard Salesforce CLI install paths are in the environment PATH
+    import os
+    env = os.environ.copy()
+    sf_paths = [
+        r"C:\Program Files\sf\bin",
+        r"C:\Program Files\sfdx\bin"
+    ]
+    current_path = env.get("PATH", "")
+    for p in sf_paths:
+        if p not in current_path:
+            current_path = p + os.pathsep + current_path
+    env["PATH"] = current_path
+    
+    def _run():
+        return subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            env=env
+        )
+    process = await loop.run_in_executor(None, _run)
+    return process.returncode, process.stdout, process.stderr
+
+@app.get("/api/sfdx/status")
+async def check_sfdx_status():
+    """Checks if sf or sfdx CLI is installed and returns version."""
+    code, stdout, _ = await run_cli_command("sf --version")
+    if code == 0:
+        return {"installed": True, "cli": "sf", "version": stdout.strip()}
+    
+    code, stdout, _ = await run_cli_command("sfdx --version")
+    if code == 0:
+        return {"installed": True, "cli": "sfdx", "version": stdout.strip()}
+        
+    return {"installed": False}
+
+@app.get("/api/sfdx/orgs")
+async def list_orgs():
+    """Lists authorized orgs using sf org list"""
+    code, stdout, stderr = await run_cli_command("sf org list --json")
+    if code != 0:
+        # Fallback to sfdx
+        code, stdout, stderr = await run_cli_command("sfdx force:org:list --json --clean")
+        
+    if code != 0:
+        raise HTTPException(status_code=500, detail=f"Failed to list orgs. Is the CLI installed? {stderr}")
+        
+    try:
+        data = json.loads(stdout)
+        import pprint
+        return {"result": data.get("result", {})}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=f"Failed to parse CLI output: {stdout}")
+
+class LoginRequest(BaseModel):
+    alias: str
+    instanceUrl: Optional[str] = None # For sandboxes
+
+@app.post("/api/sfdx/login")
+async def login_org(req: LoginRequest):
+    """Initiates web login for a new org"""
+    cmd = f"sf org login web --alias {req.alias}"
+    if req.instanceUrl:
+        cmd += f" --instance-url {req.instanceUrl}"
+        
+    code, stdout, stderr = await run_cli_command(cmd)
+    
+    if code != 0:
+         raise HTTPException(status_code=400, detail=f"Login failed: {stderr}")
+         
+    return {"success": True, "message": stdout}
+
+class OpenRequest(BaseModel):
+    targetOrg: str
+
+@app.post("/api/sfdx/open")
+async def open_org(req: OpenRequest):
+    """Opens an org in the browser"""
+    cmd = f"sf org open --target-org {req.targetOrg}"
+    await run_cli_command(cmd)
+    return {"success": True}
+
+@app.get("/api/sfdx/token/{target_org}")
+async def get_org_token(target_org: str):
+    """Fetches a fresh access token for a given org"""
+    code, stdout, stderr = await run_cli_command(f"sf org display --target-org {target_org} --json")
+    if code != 0:
+        code, stdout, stderr = await run_cli_command(f"sfdx force:org:display --targetusername {target_org} --json")
+        
+    if code != 0:
+         raise HTTPException(status_code=400, detail=f"Failed to fetch token: {stderr}")
+         
+    try:
+        data = json.loads(stdout)
+        result = data.get("result", {})
+        return {
+            "accessToken": result.get("accessToken"),
+            "instanceUrl": result.get("instanceUrl"),
+            "username": result.get("username"),
+            "id": result.get("id")
+        }
+    except json.JSONDecodeError:
+         raise HTTPException(status_code=500, detail="Failed to parse CLI output")
+
