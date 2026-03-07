@@ -2,10 +2,10 @@
 
 A stateless proxy for comparing and deploying Salesforce metadata using Heroku's Eco tier. 
 
-## 🚀 TL;DR: מה חדש? (What's New)
-- **🍒 פריסה סלקטיבית (Cherry-picking)**: בחירת קבצים ספציפיים לפריסה (מתוך חבילת ההשוואה/הפיתוח).
-- **⚙️ הגדרות טסטים (Test Levels)**: בחירת רמת בדיקה (למשל: `RunLocalTests` או `RunSpecifiedTests`) בהפעלה ישירה מהממשק.
-- **✅ ולידציה בלבד (Check-Only)**: כפתור Validate לבדיקת תקינות הפריסה והטסטים (ללא ביצוע שינויים בפועל בארגון המטרה).
+## 🚀 TL;DR: What's New
+- **🍒 Cherry-picking**: Select specific files to deploy from the fetched or compared package.
+- **⚙️ Test Levels**: Choose testing strictness (e.g., `RunLocalTests`, `RunSpecifiedTests`) directly from the UI dropdown.
+- **✅ Check-Only (Validation)**: Use the 'Validate Selected' button to simulate a deployment and test run without modifying the target org.
 
 ![הדגמת וידוא ופריסה](docs/demo_deployment.png)
 
