@@ -170,6 +170,16 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-1">
+                    <button id="orgManagerBtn"
+                        class="flex items-center gap-1.5 px-3 py-1.5 mr-2 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:border-indigo-800 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-md text-sm font-medium transition-colors"
+                        title="Manage Connected Salesforce Environments">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+                            </path>
+                        </svg>
+                        Org Manager
+                    </button>
                     <button id="screenshotBtn"
                         class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                         title="Copy Screenshot to Clipboard">
@@ -213,6 +223,14 @@
                 <div class="space-y-4">
                     <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Environments</h3>
 
+                    <div class="flex p-1 space-x-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg mb-2">
+                        <button id="tabDeploy"
+                            class="w-1/2 rounded-md py-1.5 text-xs font-semibold transition-all shadow-sm bg-white text-gray-900 dark:bg-gray-600 dark:text-white">Deploy</button>
+                        <button id="tabHealth"
+                            class="w-1/2 rounded-md py-1.5 text-xs font-semibold transition-all text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">Health
+                            Check</button>
+                    </div>
+
                     <!-- Source -->
                     <div
                         class="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/40 rounded-lg p-3 space-y-3 relative overflow-hidden group">
@@ -234,7 +252,7 @@
                     </div>
 
                     <!-- Target -->
-                    <div
+                    <div id="targetOrgContainer"
                         class="bg-green-50/50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/40 rounded-lg p-3 space-y-3 relative overflow-hidden">
                         <div class="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
                         <h4
@@ -258,7 +276,7 @@
                 <hr class="border-gray-100 dark:border-gray-700">
 
                 <!-- Manifest UI (Alpine.js State) -->
-                <div class="flex-1 flex flex-col min-h-0" x-data="manifestBuilder()">
+                <div id="deployScopeContainer" class="flex-1 flex flex-col min-h-0" x-data="manifestBuilder()">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Retrieval Scope</h3>
                         <div class="flex gap-1">
@@ -344,6 +362,22 @@
                     <textarea id="packageXml" class="hidden" x-bind:value="generatedXml"></textarea>
                 </div>
 
+                <!-- Health Check UI -->
+                <div id="healthCheckContainer" class="flex-1 flex flex-col min-h-0 hidden">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Analyze Component</h3>
+                    <div
+                        class="bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/40 rounded-lg p-3 space-y-3 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                            Enter the exact component API name to search the Tooling API for references.
+                        </p>
+                        <div>
+                            <input type="text" id="componentNameInput" placeholder="e.g. MyCustomField__c"
+                                class="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none transition-all dark:placeholder-gray-500">
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <!-- Fetch Button Area Sticky Bottom -->
@@ -356,6 +390,14 @@
                             d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
                     </svg>
                     Compare Orgs
+                </button>
+                <button id="btnAnalyze"
+                    class="w-full hidden items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-sm transition-all disabled:opacity-50">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    Analyze Dependencies
                 </button>
                 <div class="flex gap-2 mt-3">
                     <button id="btnDemo"
@@ -413,7 +455,7 @@
             </div>
 
             <!-- Table Section -->
-            <div id="diffSection" class="hidden flex-1 flex flex-col overflow-hidden fade-in relative">
+            <div id="diffSection" class="hidden flex-1 flex-col overflow-hidden fade-in relative">
                 <!-- Table Toolbar -->
                 <div
                     class="flex-none px-6 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center z-10">
@@ -449,6 +491,46 @@
                     </table>
                 </div>
             </div>
+
+            <!-- Health Empty State -->
+            <div id="healthEmptyState" class="hidden flex-1 flex-col items-center justify-center p-8 text-center fade-in">
+                <div class="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-10 h-10 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                    </svg>
+                </div>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Component Analyzed</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-md">Search for a component API name in the sidebar and click "Analyze Dependencies" to view its references.</p>
+            </div>
+
+            <!-- Dependencies Section -->
+            <div id="dependenciesSection" class="hidden flex-1 flex-col overflow-hidden fade-in relative">
+                <div
+                    class="flex-none px-6 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center z-10">
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-base font-medium text-gray-800 dark:text-gray-200">Component References</h2>
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                            id="depCountBadge">0 references</span>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-auto bg-white dark:bg-gray-900 relative">
+                    <table class="w-full text-left border-collapse whitespace-nowrap">
+                        <thead
+                            class="sticky top-0 bg-gray-50 dark:bg-gray-800/95 backdrop-blur z-10 border-b border-gray-200 dark:border-gray-700">
+                            <tr>
+                                <th class="w-48 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Type</th>
+                                <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Component Name</th>
+                            </tr>
+                        </thead>
+                        <tbody id="depList" class="divide-y divide-gray-100 dark:divide-gray-800">
+                            <!-- JS injected rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -475,6 +557,136 @@
                 </div>
                 <div class="p-0 flex-1 overflow-auto bg-white dark:bg-[#111827]">
                     <div id="diffViewer" class="w-full text-sm"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Org Manager Modal -->
+    <div id="orgManagerModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title"
+        role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
+            <div class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm transition-opacity" aria-hidden="true"
+                id="orgManagerModalBg"></div>
+            <div
+                class="inline-block align-bottom bg-white dark:bg-gray-900 rounded-xl text-left shadow-2xl transform transition-all sm:my-8 sm:align-middle w-full max-w-4xl border border-gray-200 dark:border-gray-700">
+                <!-- Header -->
+                <div
+                    class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-t-xl">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+                            </path>
+                        </svg>
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Org Manager</h3>
+                    </div>
+                    <button id="closeOrgManager" type="button"
+                        class="text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd"
+                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                clip-rule="evenodd"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Body -->
+                <div class="p-6">
+                    <!-- Status Header -->
+                    <div id="sfdxStatusContainer"
+                        class="mb-6 p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div id="sfdxStatusIcon" class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></div>
+                            <div>
+                                <p class="text-sm font-medium text-gray-900 dark:text-gray-100" id="sfdxStatusTitle">
+                                    Checking Salesforce CLI...</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400" id="sfdxStatusDesc">Verifying local
+                                    sf/sfdx installation</p>
+                            </div>
+                        </div>
+                        <div id="sfdxSatusAction"></div>
+                    </div>
+
+                    <!-- Connect New Org -->
+                    <div
+                        class="mb-8 p-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900">
+                        <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Connect New Environment
+                        </h4>
+                        <div class="flex gap-3 items-end">
+                            <div class="flex-1">
+                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Alias
+                                    (e.g. MySandbox)</label>
+                                <input type="text" id="newOrgAlias"
+                                    class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none dark:text-white"
+                                    placeholder="my-org-alias">
+                            </div>
+                            <div class="w-48">
+                                <label
+                                    class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Environment
+                                    Type</label>
+                                <select id="newOrgType"
+                                    class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none dark:text-white">
+                                    <option value="">Production / Developer</option>
+                                    <option value="https://test.salesforce.com">Sandbox</option>
+                                </select>
+                            </div>
+                            <button id="btnAuthorizeOrg"
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2 h-[38px]">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1">
+                                    </path>
+                                </svg>
+                                Authorize
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Orgs List -->
+                    <div>
+                        <div class="flex justify-between items-center mb-3">
+                            <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Authenticated
+                                Environments</h4>
+                            <button id="btnRefreshOrgs"
+                                class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                    </path>
+                                </svg>
+                                Refresh List
+                            </button>
+                        </div>
+
+                        <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                            <table class="w-full text-left border-collapse whitespace-nowrap">
+                                <thead
+                                    class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                                    <tr>
+                                        <th
+                                            class="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Alias</th>
+                                        <th
+                                            class="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Username</th>
+                                        <th
+                                            class="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Status</th>
+                                        <th
+                                            class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                            Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="orgsTableBody" class="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
+                                    <tr>
+                                        <td colspan="4" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                                            Loading orgs...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -24,6 +24,21 @@ const diffList = document.getElementById('diffList');
 const diffCountBadge = document.getElementById('diffCountBadge');
 const selectAll = document.getElementById('selectAll');
 
+// Health Check DOM Elements
+const tabDeploy = document.getElementById('tabDeploy');
+const tabHealth = document.getElementById('tabHealth');
+const targetOrgContainer = document.getElementById('targetOrgContainer');
+const deployScopeContainer = document.getElementById('deployScopeContainer');
+const healthCheckContainer = document.getElementById('healthCheckContainer');
+const btnAnalyze = document.getElementById('btnAnalyze');
+const healthEmptyState = document.getElementById('healthEmptyState');
+const dependenciesSection = document.getElementById('dependenciesSection');
+const componentNameInput = document.getElementById('componentNameInput');
+const depList = document.getElementById('depList');
+const depCountBadge = document.getElementById('depCountBadge');
+
+
+
 const deployActionBar = document.getElementById('deployActionBar');
 const deployStatus = document.getElementById('deployStatus');
 const deployProgress = document.getElementById('deployProgress');
@@ -207,6 +222,149 @@ btnRetrieve.addEventListener('click', async () => {
     } finally {
         btnRetrieve.disabled = false;
         btnRetrieve.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Fetch & Compare`;
+    }
+});
+
+// --- Application Mode Toggling ---
+function setAppMode(mode) {
+    const activeTabClasses = ['bg-white', 'text-gray-900', 'dark:bg-gray-600', 'dark:text-white', 'shadow-sm'];
+    const inactiveTabClasses = ['text-gray-500', 'hover:text-gray-700', 'dark:text-gray-400', 'dark:hover:text-gray-200', 'bg-transparent'];
+
+    if (mode === 'deploy') {
+        tabDeploy.classList.add(...activeTabClasses);
+        tabDeploy.classList.remove(...inactiveTabClasses);
+        tabHealth.classList.remove(...activeTabClasses);
+        tabHealth.classList.add(...inactiveTabClasses);
+
+        targetOrgContainer.classList.remove('hidden');
+        deployScopeContainer.classList.remove('hidden');
+        healthCheckContainer.classList.add('hidden');
+        btnRetrieve.classList.remove('hidden');
+        btnAnalyze.classList.add('hidden');
+
+        healthEmptyState.classList.add('hidden');
+        dependenciesSection.classList.add('hidden');
+
+        // Restore deploy view
+        if (changedFiles && changedFiles.length > 0) {
+            diffSection.classList.remove('hidden');
+            deployActionBar.style.display = 'flex';
+        } else {
+            emptyState.classList.remove('hidden');
+            deployActionBar.style.display = 'none';
+        }
+    } else {
+        tabHealth.classList.add(...activeTabClasses);
+        tabHealth.classList.remove(...inactiveTabClasses);
+        tabDeploy.classList.remove(...activeTabClasses);
+        tabDeploy.classList.add(...inactiveTabClasses);
+
+        targetOrgContainer.classList.add('hidden');
+        deployScopeContainer.classList.add('hidden');
+        healthCheckContainer.classList.remove('hidden');
+        btnRetrieve.classList.add('hidden');
+        btnAnalyze.classList.remove('hidden');
+
+        emptyState.classList.add('hidden');
+        diffSection.classList.add('hidden');
+        deployActionBar.style.display = 'none';
+
+        if (depList.children.length > 0) {
+            dependenciesSection.classList.remove('hidden');
+        } else {
+            healthEmptyState.classList.remove('hidden');
+        }
+    }
+}
+tabDeploy.addEventListener('click', () => setAppMode('deploy'));
+tabHealth.addEventListener('click', () => setAppMode('health'));
+
+// --- Health Check Tooling API Flow ---
+btnAnalyze.addEventListener('click', async () => {
+    const compName = componentNameInput.value.trim();
+    if (!compName) return alert("Please enter a component API name");
+    if (!srcInstance.value || !srcSession.value) return alert("Please provide Source Org credentials");
+
+    healthEmptyState.classList.add('hidden');
+    dependenciesSection.classList.add('hidden');
+    btnAnalyze.disabled = true;
+    btnAnalyze.innerHTML = `<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Analyzing...`;
+
+    try {
+        let resolvedId = compName;
+        // If not already a 15/18 char Salesforce ID
+        if (!(compName.length >= 15 && compName.length <= 18 && /^[0-9a-zA-Z]+$/.test(compName))) {
+            let toolingObj = 'ApexClass';
+            let whereField = 'Name';
+            let extractName = compName;
+
+            if (compName.includes('.')) {
+                toolingObj = 'CustomField';
+                extractName = compName.split('.')[1].replace(/__c$/, '');
+                whereField = 'DeveloperName';
+            } else if (compName.endsWith('__c') || compName.endsWith('__mdt')) {
+                toolingObj = 'CustomObject';
+                extractName = compName.replace(/__c$/, '').replace(/__mdt$/, '');
+                whereField = 'DeveloperName';
+            }
+
+            const resolveQuery = `SELECT Id FROM ${toolingObj} WHERE ${whereField} = '${extractName}' LIMIT 1`;
+            const resolveUrl = `/api/proxy/tooling/query?instanceUrl=${encodeURIComponent(srcInstance.value)}&sessionId=${encodeURIComponent(srcSession.value)}&q=${encodeURIComponent(resolveQuery)}`;
+            
+            const resolveRes = await fetch(resolveUrl);
+            if (!resolveRes.ok) throw new Error("ID Resolution failed: " + await resolveRes.text());
+            
+            const resolveData = await resolveRes.json();
+            if (resolveData.records && resolveData.records.length > 0) {
+                resolvedId = resolveData.records[0].Id;
+            } else {
+                throw new Error(`Could not resolve Component ID for '${compName}' (searched ${toolingObj}). Please enter the 15/18-character ID directly.`);
+            }
+        }
+
+        const query = `SELECT MetadataComponentType, MetadataComponentName, MetadataComponentId FROM MetadataComponentDependency WHERE RefMetadataComponentId = '${resolvedId}' LIMIT 2000`;
+        const url = `/api/proxy/tooling/query?instanceUrl=${encodeURIComponent(srcInstance.value)}&sessionId=${encodeURIComponent(srcSession.value)}&q=${encodeURIComponent(query)}`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+
+        const data = await res.json();
+        const records = data.records || [];
+
+        depList.innerHTML = '';
+        if (records.length === 0) {
+            depList.innerHTML = `<tr><td colspan="2" class="px-6 py-4 text-center text-gray-500 text-sm italic">No references found for ${compName}. It is safely decoupled.</td></tr>`;
+        } else {
+            records.forEach(r => {
+                const tr = document.createElement('tr');
+                
+                // Construct the Salesforce Setup URL. 
+                // Using frontdoor.jsp to pass the session token so the user is authenticated automatically.
+                const baseUrl = srcInstance.value.replace(/\/$/, ''); // Remove trailing slash if any
+                const retUrl = encodeURIComponent(`/${r.MetadataComponentId}`);
+                const compUrl = `${baseUrl}/secur/frontdoor.jsp?sid=${encodeURIComponent(srcSession.value)}&retURL=${retUrl}`;
+
+                tr.innerHTML = `
+                    <td class="px-6 py-3 text-xs text-gray-700 dark:text-gray-300 font-medium">${r.MetadataComponentType}</td>
+                    <td class="px-6 py-3 text-xs text-gray-900 dark:text-gray-100">
+                        <a href="${compUrl}" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline flex items-center gap-1" title="Open in Salesforce Setup">
+                            ${r.MetadataComponentName}
+                            <svg class="w-3 h-3 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </a>
+                    </td>
+                `;
+                depList.appendChild(tr);
+            });
+        }
+
+        depCountBadge.textContent = `${records.length} references`;
+        dependenciesSection.classList.remove('hidden');
+    } catch (e) {
+        alert("Tooling API Error: " + e.message);
+        healthEmptyState.classList.remove('hidden');
+    } finally {
+        btnAnalyze.disabled = false;
+        btnAnalyze.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> Analyze Dependencies`;
     }
 });
 
@@ -510,3 +668,199 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
         }
     }
 }
+
+// --- Org Manager (SFDX Integration) ---
+const orgManagerBtn = document.getElementById('orgManagerBtn');
+const orgManagerModal = document.getElementById('orgManagerModal');
+const closeOrgManager = document.getElementById('closeOrgManager');
+const orgManagerModalBg = document.getElementById('orgManagerModalBg');
+
+const sfdxStatusIcon = document.getElementById('sfdxStatusIcon');
+const sfdxStatusTitle = document.getElementById('sfdxStatusTitle');
+const sfdxStatusDesc = document.getElementById('sfdxStatusDesc');
+const sfdxSatusAction = document.getElementById('sfdxSatusAction');
+
+const orgsTableBody = document.getElementById('orgsTableBody');
+const btnRefreshOrgs = document.getElementById('btnRefreshOrgs');
+const btnAuthorizeOrg = document.getElementById('btnAuthorizeOrg');
+const newOrgAlias = document.getElementById('newOrgAlias');
+const newOrgType = document.getElementById('newOrgType');
+
+orgManagerBtn.addEventListener('click', () => {
+    orgManagerModal.classList.remove('hidden');
+    // small timeout to allow modal to display before triggering transition
+    setTimeout(() => {
+        orgManagerModal.querySelector('.transform').classList.add('scale-100', 'opacity-100');
+        orgManagerModal.querySelector('.transform').classList.remove('scale-95', 'opacity-0');
+        checkSfdxStatusAndLoadOrgs();
+    }, 10);
+});
+
+function closeOrgModal() {
+    orgManagerModal.classList.add('hidden');
+}
+
+closeOrgManager.addEventListener('click', closeOrgModal);
+orgManagerModalBg.addEventListener('click', closeOrgModal);
+btnRefreshOrgs.addEventListener('click', loadOrgs);
+
+async function checkSfdxStatusAndLoadOrgs() {
+    try {
+        const res = await fetch('/api/sfdx/status');
+        const data = await res.json();
+
+        if (data.installed) {
+            sfdxStatusIcon.className = "w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+            sfdxStatusTitle.textContent = `Salesforce CLI Installed (${data.cli})`;
+            sfdxStatusTitle.className = "text-sm font-medium text-emerald-900 dark:text-emerald-400";
+            sfdxStatusDesc.textContent = `Version: ${data.version.split(' ')[1] || data.version}`;
+            sfdxSatusAction.innerHTML = '';
+
+            await loadOrgs();
+        } else {
+            sfdxStatusIcon.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]";
+            sfdxStatusTitle.textContent = "Salesforce CLI Not Found";
+            sfdxStatusTitle.className = "text-sm font-medium text-red-900 dark:text-red-400";
+            sfdxStatusDesc.textContent = "Please install 'sf' or 'sfdx' CLI on your machine to use the Org Manager.";
+            sfdxSatusAction.innerHTML = `<a href="https://developer.salesforce.com/tools/sfdxcli" target="_blank" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">Download CLI &rarr;</a>`;
+            orgsTableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-red-500 dark:text-red-400">Salesforce CLI is required to list orgs.</td></tr>`;
+            btnAuthorizeOrg.disabled = true;
+            btnRefreshOrgs.disabled = true;
+        }
+    } catch (e) {
+        console.error("Status check failed", e);
+    }
+}
+
+async function loadOrgs() {
+    orgsTableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400"><svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-indigo-500 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Loading orgs...</td></tr>`;
+    btnRefreshOrgs.disabled = true;
+
+    try {
+        const res = await fetch('/api/sfdx/orgs');
+        if (!res.ok) throw new Error("Failed to fetch orgs");
+        const data = await res.json();
+
+        const orgs = [...(data.result.nonScratchOrgs || []), ...(data.result.scratchOrgs || [])];
+        renderOrgsTable(orgs);
+    } catch (e) {
+        orgsTableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-red-500 dark:text-red-400">Error loading orgs: ${e.message}</td></tr>`;
+    } finally {
+        btnRefreshOrgs.disabled = false;
+    }
+}
+
+function renderOrgsTable(orgs) {
+    if (!orgs || orgs.length === 0) {
+        orgsTableBody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">No authenticated orgs found. Use "Connect New Environment" above.</td></tr>`;
+        return;
+    }
+
+    orgsTableBody.innerHTML = '';
+
+    orgs.forEach(org => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors';
+
+        const isConnected = org.connectedStatus === 'Connected' || org.connectedStatus === 'Unknown' || !org.connectedStatus;
+        const statusBadge = isConnected
+            ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"><div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Connected</span>`
+            : `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800/50"><div class="w-1.5 h-1.5 rounded-full bg-red-500"></div> Expired</span>`;
+
+        // Action Buttons
+        const btnClasses = "px-2.5 py-1 text-xs font-medium rounded border transition-colors focus:outline-none";
+        const btnSource = `<button onclick="setOrgTarget('source', '${org.targetOrg || org.username}')" class="${btnClasses} bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/50 dark:hover:bg-blue-900/50 shadow-sm" ${!isConnected ? 'disabled' : ''}>Set Source</button>`;
+        const btnTarget = `<button onclick="setOrgTarget('target', '${org.targetOrg || org.username}')" class="${btnClasses} bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50 dark:hover:bg-emerald-900/50 shadow-sm" ${!isConnected ? 'disabled' : ''}>Set Target</button>`;
+        const btnOpen = `<button onclick="openOrg('${org.targetOrg || org.username}')" class="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 dark:text-gray-400 dark:hover:text-indigo-400 rounded transition-colors" title="Open in Browser" ${!isConnected ? 'disabled' : ''}><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></button>`;
+
+        tr.innerHTML = `
+            <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">${org.alias || '-'}</td>
+            <td class="px-4 py-3 text-gray-500 dark:text-gray-400 w-full">${org.username}</td>
+            <td class="px-4 py-3">${statusBadge}</td>
+            <td class="px-4 py-3 text-right">
+                <div class="flex items-center justify-end gap-2">
+                    ${btnSource}
+                    ${btnTarget}
+                    <div class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+                    ${btnOpen}
+                </div>
+            </td>
+        `;
+        orgsTableBody.appendChild(tr);
+    });
+}
+
+// Global functions for inline handlers
+window.openOrg = async function (username) {
+    try {
+        await fetch('/api/sfdx/open', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetOrg: username })
+        });
+    } catch (e) {
+        console.error("Failed to open org", e);
+        alert("Failed to open org. Check console for details.");
+    }
+};
+
+window.setOrgTarget = async function (side, username) {
+    closeOrgModal();
+
+    const instanceElem = side === 'source' ? srcInstance : tgtInstance;
+    const sessionElem = side === 'source' ? srcSession : tgtSession;
+
+    sessionElem.value = "Fetching token...";
+
+    try {
+        const res = await fetch(`/api/sfdx/token/${username}`);
+        if (!res.ok) throw new Error("Failed to fetch fresh token");
+        const data = await res.json();
+
+        instanceElem.value = data.instanceUrl;
+        sessionElem.value = data.accessToken;
+
+    } catch (e) {
+        console.error("Token fetch failed", e);
+        sessionElem.value = "";
+        alert(`Failed to fetch session token for ${username}. Wait a few seconds or try authorizing again.`);
+    }
+};
+
+btnAuthorizeOrg.addEventListener('click', async () => {
+    const alias = newOrgAlias.value.trim();
+    if (!alias) {
+        alert("Please provide an alias.");
+        return;
+    }
+
+    const origBtnHtml = btnAuthorizeOrg.innerHTML;
+    btnAuthorizeOrg.disabled = true;
+    btnAuthorizeOrg.innerHTML = `<svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Waiting for Browser...`;
+
+    try {
+        const reqBody = { alias: alias };
+        if (newOrgType.value) reqBody.instanceUrl = newOrgType.value;
+
+        const res = await fetch('/api/sfdx/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(reqBody)
+        });
+
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(err);
+        }
+
+        newOrgAlias.value = '';
+        await loadOrgs();
+
+    } catch (e) {
+        console.error("Login failed", e);
+        alert("Authorization failed or timed out.");
+    } finally {
+        btnAuthorizeOrg.disabled = false;
+        btnAuthorizeOrg.innerHTML = origBtnHtml;
+    }
+});
