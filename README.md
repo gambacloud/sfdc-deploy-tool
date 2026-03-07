@@ -6,8 +6,17 @@ A stateless proxy for comparing and deploying Salesforce metadata using Heroku's
 - **🍒 Cherry-picking**: Select specific files to deploy from the fetched or compared package.
 - **⚙️ Test Levels**: Choose testing strictness (e.g., `RunLocalTests`, `RunSpecifiedTests`) directly from the UI dropdown.
 - **✅ Check-Only (Validation)**: Use the 'Validate Selected' button to simulate a deployment and test run without modifying the target org.
+- **🔑 Org Manager**: Seamlessly connect to your Salesforce environments using your existing local `sf` (Salesforce CLI) configuration. 
+- **🏥 Field Usage & Health Check**: Analyze dependencies for custom fields and other metadata natively. View where components are used and open their Salesforce Setup pages directly in one click.
 
-![הדגמת וידוא ופריסה](docs/demo_deployment.png)
+### Validation & Deployment
+![Deployment Flow](docs/demo_deployment.png)
+
+### Environment Selection (Org Manager)
+![Org Manager](docs/org_manager.png)
+
+### Dependency Analyzer (Field Usage)
+![Health Check](docs/health_check.png)
 
 ## Features
 - **Stateless Proxy**: FastAPI streams large XML and Base64 ZIP payloads directly between Salesforce and the browser without saving anything to the Heroku filesystem.
