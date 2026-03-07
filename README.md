@@ -1,13 +1,15 @@
-# Salesforce Metadata Deployer
+# Salesforce Deployer Pro
 
-A stateless proxy for comparing and deploying Salesforce metadata using Heroku's Eco tier. 
+A high-performance, stateless web tool for comparing, validating, and deploying Salesforce metadata. It runs entirely in the browser using your local Salesforce CLI (`sf`) authentication, ensuring no source code or credentials are ever saved to a server.
 
-## 🚀 TL;DR: What's New
-- **🍒 Cherry-picking**: Select specific files to deploy from the fetched or compared package.
-- **⚙️ Test Levels**: Choose testing strictness (e.g., `RunLocalTests`, `RunSpecifiedTests`) directly from the UI dropdown.
-- **✅ Check-Only (Validation)**: Use the 'Validate Selected' button to simulate a deployment and test run without modifying the target org.
-- **🔑 Org Manager**: Seamlessly connect to your Salesforce environments using your existing local `sf` (Salesforce CLI) configuration. 
-- **🏥 Field Usage & Health Check**: Analyze dependencies for custom fields and other metadata natively. View where components are used and open their Salesforce Setup pages directly in one click.
+## Features
+
+- **Direct Deployment**: Deploy metadata easily between two orgs.
+- **Cherry-picking**: Selectively deploy a subset of files from the fetched package.
+- **Validation (Check-Only)**: Simulate deployments and test runs without making actual changes.
+- **Custom Testing**: Choose specific test levels (e.g., `RunLocalTests`, `RunSpecifiedTests`).
+- **Org Manager**: Automatically syncs and uses your existing local Salesforce CLI (`sf`) environments.
+- **Dependency Analyzer**: Check custom field/metadata usage and open them directly in Salesforce Setup.
 
 ### Validation & Deployment
 ![Deployment Flow](docs/demo_deployment.png)
@@ -18,42 +20,29 @@ A stateless proxy for comparing and deploying Salesforce metadata using Heroku's
 ### Dependency Analyzer (Field Usage)
 ![Health Check](docs/health_check.png)
 
-## Features
-- **Stateless Proxy**: FastAPI streams large XML and Base64 ZIP payloads directly between Salesforce and the browser without saving anything to the Heroku filesystem.
-- **Client-Side Processing**: Browser uses JSZip and diff2html to compare metadata before deployment.
-- **Modern UI**: Built with Tailwind CSS, featuring Dark Mode.
+## Getting Started
 
-## Deploying to Heroku
+You can run this tool in three different ways:
 
-This project is configured to be deployed easily to Heroku.
+### 1. Download Executable (Easiest)
+Download the standalone executable and double-click to run.
+1. Go to the [Actions tab](../../actions) in this repository.
+2. Click on the latest successful `Build Executables` workflow run.
+3. Download the artifact for your OS (Windows, Mac, or Linux) at the bottom of the page.
 
+### 2. Run Locally from Source
+Run the Python FastAPI server locally using the included scripts.
+1. Clone the repository: `git clone https://github.com/gambacloud/sfdc-deploy-tool.git`
+2. Run `run.bat` (Windows) or `./run.sh` (Mac/Linux) to automatically install requirements and start the server.
+3. Open `http://localhost:8000` in your browser.
+
+### 3. Deploy to Heroku
+Deploy your own instance to the cloud (Stateless proxy).
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
-
-If you are deploying manually via the Heroku CLI:
-
+Or via Heroku CLI:
 ```bash
 heroku create sfdc-deployer
 git push heroku main
 ```
 
-## Running Locally
-
-1. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Run the development server:
-```bash
-uvicorn app:app --reload
-```
-
-## Security Note
-
-This tool proxies your Salesforce Session IDs. For production environments, ensure you use HTTPS, and never expose your target instance URLs or session IDs in logs.
+> **Security Note**: This tool proxies Salesforce session IDs. If deploying to a cloud server like Heroku, ensure HTTPS is enabled and target instance URLs/session IDs are never logged. When running locally or via executable, communication stays on your machine.
