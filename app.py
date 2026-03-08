@@ -59,6 +59,7 @@ async def retrieve_metadata(req: RetrieveRequest):
     """
     instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
     url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
+    print(f"[RETRIEVE] Initiating metadata retrieve from {instance_url}...")
     
     import re
     # Safely strip any leading XML declaration and rename Package element to met:unpackaged
@@ -96,6 +97,7 @@ async def retrieve_metadata(req: RetrieveRequest):
         retrieve_response = body.find('met:retrieveResponse', namespaces)
         result = retrieve_response.find('met:result', namespaces)
         job_id = result.find('met:id', namespaces).text
+        print(f"[RETRIEVE] Job queued successfully. Job ID: {job_id}. Polling for completion...")
 
     # 2. Poll for status and stream result back
     check_rx_soap = f"""<?xml version="1.0" encoding="utf-8"?>
@@ -132,10 +134,12 @@ async def retrieve_metadata(req: RetrieveRequest):
                     full_response += chunk
                 
                 if "status>InProgress" in full_response or "status>Pending" in full_response:
+                    print(f"[RETRIEVE] Job {job_id} is still in progress...")
                     await asyncio.sleep(3)
                     continue
                 
                 # If done (or failed), yield the entire buffered response back to the client cleanly.
+                print(f"[RETRIEVE] Job {job_id} finished polling. Streaming results to browser.")
                 yield full_response.encode('utf-8')
                 break
 
@@ -191,8 +195,10 @@ async def deploy_metadata(req: DeployRequest):
 
     # We do not use stream() here because we just want to return the jobId parsed from the response
     async with httpx.AsyncClient() as client:
+        print(f"[DEPLOY] Initiating deployment to {instance_url} (CheckOnly: {req.checkOnly}, TestLevel: {req.testLevel})...")
         resp = await client.post(url, content=deploy_soap, headers=get_soap_headers())
         if resp.status_code != 200:
+            print(f"[DEPLOY] Failed! {resp.text}")
             raise HTTPException(status_code=400, detail=f"Deploy failed: {resp.text}")
             
         root = ET.fromstring(resp.text)
@@ -202,6 +208,7 @@ async def deploy_metadata(req: DeployRequest):
         result = deploy_response.find('met:result', namespaces)
         job_id = result.find('met:id', namespaces).text
         
+        print(f"[DEPLOY] Job queued successfully. Job ID: {job_id}.")
         return {"jobId": job_id}
 
 
