@@ -59,6 +59,11 @@ async def retrieve_metadata(req: RetrieveRequest):
     """
     url = f"{req.instanceUrl}/services/Soap/m/{req.apiVersion}"
     
+    import re
+    # Safely strip any leading XML declaration and rename Package element to met:unpackaged
+    clean_xml = re.sub(r'<\?xml.*?\?>', '', req.unpackagedXml).strip()
+    clean_xml = clean_xml.replace('<Package', '<met:unpackaged').replace('</Package>', '</met:unpackaged>')
+
     # 1. Initiate Retrieve
     retrieve_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
@@ -71,9 +76,7 @@ async def retrieve_metadata(req: RetrieveRequest):
           <met:retrieve>
              <met:retrieveRequest>
                 <met:apiVersion>{req.apiVersion}</met:apiVersion>
-                <met:unpackaged>
-                   {req.unpackagedXml}
-                </met:unpackaged>
+                {clean_xml}
              </met:retrieveRequest>
           </met:retrieve>
        </soapenv:Body>
