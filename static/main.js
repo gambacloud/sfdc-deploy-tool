@@ -133,8 +133,18 @@ document.addEventListener('alpine:init', () => {
 function extractZipFromSoap(xmlString) {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+    
+    // Check for SOAP faults first
+    const faultStringNode = xmlDoc.getElementsByTagName("faultstring")[0] || xmlDoc.getElementsByTagName("soapenv:faultstring")[0];
+    if (faultStringNode) {
+        throw new Error(`SOAP Error: ${faultStringNode.textContent}`);
+    }
+
     const resultNode = xmlDoc.getElementsByTagName("result")[0] || xmlDoc.getElementsByTagName("met:result")[0];
-    if (!resultNode) throw new Error("Result node not found in SOAP response.");
+    if (!resultNode) {
+        const snippet = (xmlString || "").substring(0, 500);
+        throw new Error(`Result node not found in SOAP response. Raw response snippet: ${snippet}`);
+    }
 
     const successNode = xmlDoc.getElementsByTagName("success")[0] || xmlDoc.getElementsByTagName("met:success")[0];
     if (successNode && successNode.textContent === 'false') {
@@ -649,8 +659,17 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(soapStr, "text/xml");
 
+        // Check for SOAP fault
+        const faultNode = xmlDoc.getElementsByTagName("faultstring")[0] || xmlDoc.getElementsByTagName("soapenv:faultstring")[0];
+        if (faultNode) {
+            throw new Error(`SOAP Fault during deploy status: ${faultNode.textContent}`);
+        }
+
         const statusNode = xmlDoc.getElementsByTagName("status")[0] || xmlDoc.getElementsByTagName("met:status")[0];
-        if (!statusNode) continue;
+        if (!statusNode) {
+            const snippet = (soapStr || "").substring(0, 500);
+            throw new Error(`Deploy Status Result node not found. Raw response snippet: ${snippet}`);
+        }
 
         const status = statusNode.textContent;
         const actionStr = isCheckOnly ? "Validation" : "Deploy";
