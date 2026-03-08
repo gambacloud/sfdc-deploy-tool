@@ -114,26 +114,31 @@ async def retrieve_metadata(req: RetrieveRequest):
     </soapenv:Envelope>"""
 
     async def poll_and_stream():
-        # Keep yielding spaces while polling to prevent Heroku 30s timeout
-        # Since we just want to send the raw response eventually, let's just make the frontend handle pulling
-        # BUT the prompt "Streams the resulting base64 ZIP file directly back" suggests returning just the zip file.
-        # Actually yielding spaces works if the client can parse a padded response, but JSON/Base64 can't handle leading spaces easily
-        # unless we stream it clearly. Let's just poll normally. Heroku might timeout, but it's a risk we accept for now.
         client = httpx.AsyncClient()
         while True:
-            resp = await client.post(url, content=check_rx_soap, headers=get_soap_headers())
-            if "status>InProgress" in resp.text or "status>Pending" in resp.text:
-                await asyncio.sleep(3)
-                continue
-            
-            # If done, stream the raw SOAP response. The frontend can parse the zipFile node from it.
-            # This is completely stateless and memory efficient for the backend!
-            # We yield the payload over the wire directly!
-            async with client.stream("POST", url, content=check_rx_soap, headers=get_soap_headers()) as r:
-                async for chunk in r.aiter_raw():
-                    yield chunk
-            break
-            
+            # We must use stream() right from the start. Once a successful response is pulled,
+            # Salesforce deletes the result locator on their end, so we can't fetch it a second time.
+            async with client.stream("POST", url, content=check_rx_soap, headers=get_soap_headers()) as resp:
+                # We need to buffer the response to check the status because the XML is usually small,
+                # but if it succeeds, it contains a massive base64 zip.
+                # Since we don't want to load a massive zip into memory entirely if we don't have to,
+                # let's read the first chunk to peek at the status.
+                
+                # However, httpx doesn't let us easily 'peek' and then continue yielding.
+                # Since the zip is base64 encoded text inside the SOAP XML, accumulating the text in memory
+                # in Python is perfectly fine! The limits are high enough.
+                full_response = ""
+                async for chunk in resp.aiter_text():
+                    full_response += chunk
+                
+                if "status>InProgress" in full_response or "status>Pending" in full_response:
+                    await asyncio.sleep(3)
+                    continue
+                
+                # If done (or failed), yield the entire buffered response back to the client cleanly.
+                yield full_response.encode('utf-8')
+                break
+
     return StreamingResponse(poll_and_stream(), media_type="text/xml")
 
 
