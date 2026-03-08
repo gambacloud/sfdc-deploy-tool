@@ -57,7 +57,8 @@ async def retrieve_metadata(req: RetrieveRequest):
     Accepts SFDC credentials/session IDs. Calls the Salesforce Metadata API retrieve(). 
     Streams the resulting base64 ZIP file directly back to the frontend without storing it.
     """
-    url = f"{req.instanceUrl}/services/Soap/m/{req.apiVersion}"
+    instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
+    url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
     
     import re
     # Safely strip any leading XML declaration and rename Package element to met:unpackaged
@@ -151,7 +152,8 @@ async def deploy_metadata(req: DeployRequest):
     Accepts a base64 encoded ZIP from the frontend and forwards it to the Salesforce Metadata API deploy() endpoint. 
     Returns the Job ID.
     """
-    url = f"{req.instanceUrl}/services/Soap/m/{req.apiVersion}"
+    instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
+    url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
     
     tests_xml = ""
     for test in req.testClasses:
@@ -214,7 +216,8 @@ async def check_deploy_status(
     Proxies the checkDeployStatus call to Salesforce for polling.
     Values should be passed as query parameters.
     """
-    url = f"{instanceUrl}/services/Soap/m/{apiVersion}"
+    instance_url = instanceUrl if instanceUrl.startswith("http") else f"https://{instanceUrl}"
+    url = f"{instance_url}/services/Soap/m/{apiVersion}"
     
     status_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
@@ -249,7 +252,9 @@ async def tooling_query(instanceUrl: str, sessionId: str, q: str):
     if not instanceUrl or not sessionId or not q:
         raise HTTPException(status_code=400, detail="Missing instanceUrl, sessionId, or query 'q'")
         
-    url = f"{instanceUrl.rstrip('/')}/services/data/v58.0/tooling/query"
+    instance_url = instanceUrl.rstrip('/')
+    instance_url = instance_url if instance_url.startswith("http") else f"https://{instance_url}"
+    url = f"{instance_url}/services/data/v58.0/tooling/query"
     headers = {
         "Authorization": f"Bearer {sessionId}",
         "Accept": "application/json"
