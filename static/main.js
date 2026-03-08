@@ -99,10 +99,10 @@ document.addEventListener('alpine:init', () => {
 
         get generatedXml() {
             if (this.selectedTypes.length === 0) {
-                return `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n  <version>58.0</version>\n</Package>`;
+                return `<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n  <version>58.0</version>\n</Package>`;
             }
 
-            let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
+            let xml = `<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
             this.selectedTypes.forEach(type => {
                 xml += `  <types>\n    <members>*</members>\n    <name>${type}</name>\n  </types>\n`;
             });
