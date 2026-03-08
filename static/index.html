@@ -236,11 +236,18 @@
                     <div
                         class="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/40 rounded-lg p-3 space-y-3 relative overflow-hidden group">
                         <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                        <h4 class="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center gap-1.5 ml-1">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
-                            </svg> Source
+                        <h4 class="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center justify-between ml-1">
+                            <span class="flex items-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                </svg> Source
+                            </span>
+                            <button id="btnSwapOrgs" class="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white/50 dark:hover:bg-gray-800/50 rounded transition-colors" title="Swap Source and Target">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
+                                </svg>
+                            </button>
                         </h4>
                         <div>
                             <input type="text" id="srcInstance" placeholder="Instance URL (https://na139...)"
@@ -462,9 +469,27 @@
                     class="flex-none px-6 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center z-10">
                     <div class="flex items-center gap-3">
                         <h2 class="text-base font-medium text-gray-800 dark:text-gray-200">Deployment Package</h2>
-                        <span
-                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                            id="diffCountBadge">0 files</span>
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                                id="diffCountBadge">0 files</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 font-medium" id="selectedCountText">(0 selected)</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 cursor-pointer">
+                            <input type="checkbox" id="showSelectedOnly" class="w-3.5 h-3.5 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer">
+                            Show Selected Only
+                        </label>
+                        <select id="statusFilter" class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs focus:ring-1 focus:ring-salesforce outline-none transition-all text-gray-600 dark:text-gray-300">
+                            <option value="all">All Statuses</option>
+                            <option value="new">New Only</option>
+                            <option value="modified">Modified Only</option>
+                        </select>
+                        <div class="relative items-center flex">
+                            <svg class="w-4 h-4 absolute left-2.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            <input type="text" id="filterInput" placeholder="Filter component..." class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md pl-8 pr-3 py-1.5 text-xs focus:ring-1 focus:ring-salesforce outline-none transition-all dark:placeholder-gray-500 w-56">
+                        </div>
                     </div>
                 </div>
 
@@ -478,12 +503,26 @@
                                     <input id="selectAll" type="checkbox"
                                         class="w-4 h-4 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer">
                                 </th>
-                                <th class="w-24 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                    Status</th>
-                                <th class="w-48 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                    Type</th>
-                                <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                    Component Name</th>
+                                <th class="w-24 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors select-none" data-sort="status">
+                                    Status
+                                    <span class="inline-block ml-1 sort-indicator text-gray-300 dark:text-gray-600 font-bold" data-column="status"></span>
+                                </th>
+                                <th class="w-32 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors select-none" data-sort="type">
+                                    Type
+                                    <span class="inline-block ml-1 sort-indicator text-gray-300 dark:text-gray-600 font-bold" data-column="type"></span>
+                                </th>
+                                <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors select-none" data-sort="name">
+                                    Component Name
+                                    <span class="inline-block ml-1 sort-indicator text-gray-300 dark:text-gray-600 font-bold" data-column="name"></span>
+                                </th>
+                                <th class="w-48 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors select-none" data-sort="lastModifiedByName">
+                                    Last Modified By
+                                    <span class="inline-block ml-1 sort-indicator text-gray-300 dark:text-gray-600 font-bold" data-column="lastModifiedByName"></span>
+                                </th>
+                                <th class="w-48 px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors select-none" data-sort="lastModifiedDate">
+                                    Last Mod Date
+                                    <span class="inline-block ml-1 sort-indicator text-gray-300 dark:text-gray-600 font-bold" data-column="lastModifiedDate"></span>
+                                </th>
                             </tr>
                         </thead>
                         <tbody id="diffList" class="divide-y divide-gray-100 dark:divide-gray-800">

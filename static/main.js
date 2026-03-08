@@ -51,6 +51,12 @@ const closeModalBtn = document.getElementById('closeModal');
 const modalTitle = document.getElementById('modalTitle');
 const diffViewer = document.getElementById('diffViewer');
 
+// UI Enhancements elements
+const btnSwapOrgs = document.getElementById('btnSwapOrgs');
+const selectedCountText = document.getElementById('selectedCountText');
+const showSelectedOnly = document.getElementById('showSelectedOnly');
+const statusFilter = document.getElementById('statusFilter');
+
 // State
 let srcZip = null;
 let tgtZip = null;
@@ -221,6 +227,11 @@ btnRetrieve.addEventListener('click', async () => {
         setProgress(retrieveProgress, retrieveMsg, 60, 'Metadata retrieved. Comparing files...', false);
         await compareZips(src, tgt);
 
+        setProgress(retrieveProgress, retrieveMsg, 80, 'Fetching Last Modified data...', false);
+        await fetchLastModifiedData(srcInstance.value, srcSession.value);
+
+        setProgress(retrieveProgress, retrieveMsg, 100, `Comparison complete. Found ${changedFiles.length} differences.`, false);
+
         setProgress(retrieveProgress, retrieveMsg, 100, `Comparison complete. Found ${changedFiles.length} differences.`, false);
         diffCountBadge.textContent = `${changedFiles.length} files`;
         renderDiffTable();
@@ -233,6 +244,17 @@ btnRetrieve.addEventListener('click', async () => {
         btnRetrieve.disabled = false;
         btnRetrieve.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Fetch & Compare`;
     }
+});
+
+btnSwapOrgs.addEventListener('click', () => {
+    const tempInstance = srcInstance.value;
+    const tempSession = srcSession.value;
+    
+    srcInstance.value = tgtInstance.value;
+    srcSession.value = tgtSession.value;
+    
+    tgtInstance.value = tempInstance;
+    tgtSession.value = tempSession;
 });
 
 // --- Application Mode Toggling ---
@@ -384,18 +406,27 @@ btnDemo.addEventListener('click', () => {
         {
             name: "unpackaged/classes/AccountTriggerHandler.cls",
             status: "Modified",
+            selected: false,
+            lastModifiedByName: "Sarah Developer",
+            lastModifiedDate: "2023-10-25T14:30:00Z",
             srcContent: "public class AccountTriggerHandler {\n    public static void beforeInsert(List<Account> newAccounts) {\n        for(Account acc : newAccounts) {\n            if(acc.Industry == 'Technology') {\n                acc.Rating = 'Hot';\n                acc.Description = 'Tech Account - Priority';\n            }\n        }\n    }\n    \n    public static void afterInsert(List<Account> newAccounts) {\n        // Call external tracking service\n        IntegrationService.notifyNewAccounts(newAccounts);\n        System.debug('Account creation fully processed');\n    }\n}\n",
             tgtContent: "public class AccountTriggerHandler {\n    public static void beforeInsert(List<Account> newAccounts) {\n        for(Account acc : newAccounts) {\n            if(acc.Industry == 'Technology') {\n                acc.Rating = 'Hot';\n            }\n        }\n    }\n    \n    public static void afterInsert(List<Account> newAccounts) {\n        // Old logic\n        System.debug('Account created');\n    }\n}\n"
         },
         {
             name: "unpackaged/objects/Opportunity.object",
             status: "Modified",
+            selected: false,
+            lastModifiedByName: "Admin User",
+            lastModifiedDate: "2023-10-24T09:15:00Z",
             srcContent: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<CustomObject xmlns=\"http://soap.sforce.com/2006/04/metadata\">\n    <fields>\n        <fullName>Discount__c</fullName>\n        <type>Percent</type>\n    </fields>\n</CustomObject>",
             tgtContent: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<CustomObject xmlns=\"http://soap.sforce.com/2006/04/metadata\">\n    <!-- Missing Discount field -->\n</CustomObject>"
         },
         {
             name: "unpackaged/lwc/customDatatable/customDatatable.js",
             status: "New",
+            selected: false,
+            lastModifiedByName: "Sarah Developer",
+            lastModifiedDate: "2023-10-26T11:45:00Z",
             srcContent: "import { LightningElement } from 'lwc';\n\nexport default class CustomDatatable extends LightningElement {\n    data = [];\n    columns = [{ label: 'Name', fieldName: 'name' }];\n}",
             tgtContent: ""
         }
@@ -436,19 +467,162 @@ async function compareZips(src, tgt) {
         const srcContent = await src.file(fileName).async("string");
 
         if (!tgt.file(fileName)) {
-            changedFiles.push({ name: fileName, status: 'New', srcContent, tgtContent: '' });
+            changedFiles.push({ name: fileName, status: 'New', selected: false, srcContent, tgtContent: '', lastModifiedByName: '-', lastModifiedDate: '-' });
         } else {
             const tgtContent = await tgt.file(fileName).async("string");
             if (srcContent !== tgtContent) {
-                changedFiles.push({ name: fileName, status: 'Modified', srcContent, tgtContent });
+                changedFiles.push({ name: fileName, status: 'Modified', selected: false, srcContent, tgtContent, lastModifiedByName: '-', lastModifiedDate: '-' });
             }
         }
     }
 }
 
+async function fetchLastModifiedData(instanceUrl, sessionId) {
+    if (changedFiles.length === 0) return;
+
+    const folderToTypeMap = {
+        'classes': 'ApexClass', 'pages': 'ApexPage', 'components': 'ApexComponent',
+        'triggers': 'ApexTrigger', 'aura': 'AuraDefinitionBundle', 'lwc': 'LightningComponentBundle',
+        'objects': 'CustomObject', 'layouts': 'Layout', 'permissionsets': 'PermissionSet',
+        'profiles': 'Profile', 'customMetadata': 'CustomMetadata', 'labels': 'CustomLabels'
+    };
+
+    const typesNeeded = new Set();
+    changedFiles.forEach(f => {
+        const parts = f.name.replace('unpackaged/', '').split('/');
+        if (parts.length >= 2) {
+            const folder = parts[0];
+            const type = folderToTypeMap[folder] || folder;
+            typesNeeded.add(type);
+        }
+    });
+
+    const typesArray = Array.from(typesNeeded);
+    const metadataResults = [];
+    
+    const fetchPromises = [];
+    for (let i = 0; i < typesArray.length; i += 3) {
+        const batch = typesArray.slice(i, i + 3);
+        fetchPromises.push(
+            fetch('/api/proxy/listMetadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instanceUrl, sessionId, types: batch })
+            })
+            .then(async res => {
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.result && Array.isArray(data.result)) {
+                        return data.result;
+                    }
+                } else {
+                    console.error('Failed listMetadata batch', await res.text());
+                }
+                return [];
+            })
+            .catch(e => {
+                console.error('listMetadata Error', e);
+                return [];
+            })
+        );
+    }
+
+    const resultsArrays = await Promise.all(fetchPromises);
+    resultsArrays.forEach(arr => metadataResults.push(...arr));
+
+    const lookup = {};
+    metadataResults.forEach(r => {
+        if (!lookup[r.type]) lookup[r.type] = {};
+        lookup[r.type][r.fullName] = r;
+    });
+
+    changedFiles.forEach(f => {
+        const parts = f.name.replace('unpackaged/', '').split('/');
+        if (parts.length >= 2) {
+            const folder = parts[0];
+            const type = folderToTypeMap[folder] || folder;
+            let fullName = parts.slice(1).join('/');
+            
+            const noExtTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomLabels'];
+            if (noExtTypes.includes(type)) {
+                fullName = fullName.split('.')[0];
+            }
+
+            if (lookup[type] && lookup[type][fullName]) {
+                const info = lookup[type][fullName];
+                f.lastModifiedByName = info.lastModifiedByName || '-';
+                // format date
+                let dateStr = info.lastModifiedDate;
+                if (dateStr) {
+                    try {
+                        const d = new Date(dateStr);
+                        dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    } catch(e) {}
+                }
+                f.lastModifiedDate = dateStr || '-';
+            }
+        }
+    });
+}
+
+let currentSortColumn = 'name';
+let currentSortDirection = 'asc';
+const filterInput = document.getElementById('filterInput');
+
+function updateSelectedCount() {
+    const selectedCount = changedFiles.filter(f => f.selected).length;
+    if (selectedCountText) {
+        selectedCountText.textContent = `(${selectedCount} selected)`;
+    }
+}
+
+diffList.addEventListener('change', (e) => {
+    if (e.target.classList.contains('file-checkbox')) {
+        const globalIdx = parseInt(e.target.dataset.idx);
+        changedFiles[globalIdx].selected = e.target.checked;
+        updateSelectedCount();
+        
+        // Update selectAll state
+        const renderedCheckboxes = Array.from(document.querySelectorAll('.file-checkbox'));
+        const allChecked = renderedCheckboxes.every(cb => cb.checked);
+        selectAll.checked = allChecked && renderedCheckboxes.length > 0;
+    }
+});
+
+if (filterInput) {
+    filterInput.addEventListener('input', () => renderDiffTable());
+}
+if (showSelectedOnly) {
+    showSelectedOnly.addEventListener('change', () => renderDiffTable());
+}
+if (statusFilter) {
+    statusFilter.addEventListener('change', () => renderDiffTable());
+}
+
+document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (currentSortColumn === col) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSortColumn = col;
+            currentSortDirection = 'asc';
+        }
+        
+        // Update sort indicators
+        document.querySelectorAll('.sort-indicator').forEach(el => el.textContent = '');
+        const indicator = th.querySelector('.sort-indicator');
+        if (indicator) {
+            indicator.textContent = currentSortDirection === 'asc' ? '↑' : '↓';
+        }
+        renderDiffTable();
+    });
+});
+
 function renderDiffTable() {
     diffList.innerHTML = '';
-    selectAll.checked = false;
+    
+    updateSelectedCount();
 
     if (changedFiles.length === 0) {
         diffList.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500">No differences found. Orgs are perfectly synced for this manifest.</td></tr>';
@@ -463,18 +637,83 @@ function renderDiffTable() {
         'profiles': 'Profile', 'customMetadata': 'CustomMetadata', 'labels': 'CustomLabels'
     };
 
-    changedFiles.forEach((f, idx) => {
+    let filteredFiles = changedFiles;
+    
+    // Status Filter
+    const sFilter = statusFilter ? statusFilter.value : 'all';
+    if (sFilter !== 'all') {
+        filteredFiles = filteredFiles.filter(f => f.status.toLowerCase() === sFilter);
+    }
+    
+    // Selected Filter
+    const selOnly = showSelectedOnly ? showSelectedOnly.checked : false;
+    if (selOnly) {
+        filteredFiles = filteredFiles.filter(f => f.selected);
+    }
+
+    // Text Filter
+    const q = filterInput ? filterInput.value.toLowerCase() : '';
+    if (q) {
+        filteredFiles = filteredFiles.filter(f => {
+            const rawName = f.name.replace('unpackaged/', '');
+            const parts = rawName.split('/');
+            const typeName = parts.length >= 2 ? (folderToType[parts[0]] || parts[0]) : 'Unknown';
+            const compName = parts.length >= 2 ? parts.slice(1).join('/') : rawName;
+            
+            return f.status.toLowerCase().includes(q) || 
+                   typeName.toLowerCase().includes(q) || 
+                   compName.toLowerCase().includes(q) ||
+                   (f.lastModifiedByName || '').toLowerCase().includes(q) ||
+                   (f.lastModifiedDate || '').toLowerCase().includes(q);
+        });
+    }
+
+    filteredFiles.sort((a, b) => {
+        let valA = '';
+        let valB = '';
+        
+        const rawNameA = a.name.replace('unpackaged/', '');
+        const partsA = rawNameA.split('/');
+        const typeNameA = partsA.length >= 2 ? (folderToType[partsA[0]] || partsA[0]) : 'Unknown';
+        const compNameA = partsA.length >= 2 ? partsA.slice(1).join('/') : rawNameA;
+
+        const rawNameB = b.name.replace('unpackaged/', '');
+        const partsB = rawNameB.split('/');
+        const typeNameB = partsB.length >= 2 ? (folderToType[partsB[0]] || partsB[0]) : 'Unknown';
+        const compNameB = partsB.length >= 2 ? partsB.slice(1).join('/') : rawNameB;
+
+        if (currentSortColumn === 'status') {
+            valA = a.status || ''; valB = b.status || '';
+        } else if (currentSortColumn === 'type') {
+            valA = typeNameA; valB = typeNameB;
+        } else if (currentSortColumn === 'name') {
+            valA = compNameA; valB = compNameB;
+        } else if (currentSortColumn === 'lastModifiedByName') {
+            valA = a.lastModifiedByName || ''; valB = b.lastModifiedByName || '';
+        } else if (currentSortColumn === 'lastModifiedDate') {
+            valA = a.lastModifiedDate || ''; valB = b.lastModifiedDate || '';
+        }
+
+        if (valA < valB) return currentSortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSortDirection === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    diffCountBadge.textContent = `${filteredFiles.length} files`;
+
+    filteredFiles.forEach((f, idx) => {
+        const globalIdx = changedFiles.indexOf(f); // Keep reference to original index for showDiff
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer group';
         tr.onclick = (e) => {
             // Prevent opening modal if clicking the checkbox
             if (e.target.tagName.toLowerCase() === 'input') return;
-            showDiff(idx);
+            showDiff(globalIdx);
         };
 
         const tdCheck = document.createElement('td');
         tdCheck.className = 'px-6 py-4 whitespace-nowrap';
-        tdCheck.innerHTML = `<input type="checkbox" class="file-checkbox w-4 h-4 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer" data-idx="${idx}">`;
+        tdCheck.innerHTML = `<input type="checkbox" class="file-checkbox w-4 h-4 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer" data-idx="${globalIdx}" ${f.selected ? 'checked' : ''}>`;
 
         const tdStatus = document.createElement('td');
         tdStatus.className = 'px-6 py-4 whitespace-nowrap';
@@ -501,18 +740,39 @@ function renderDiffTable() {
         const tdName = document.createElement('td');
         tdName.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-salesforce transition-colors';
         tdName.innerHTML = `<div class="flex items-center gap-2">${compName} <svg class="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></div>`;
+        
+        const tdModBy = document.createElement('td');
+        tdModBy.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400 truncate max-w-[12rem]';
+        tdModBy.textContent = f.lastModifiedByName || '-';
+        tdModBy.title = f.lastModifiedByName || '';
+
+        const tdModDate = document.createElement('td');
+        tdModDate.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400';
+        tdModDate.textContent = f.lastModifiedDate || '-';
 
         tr.appendChild(tdCheck);
         tr.appendChild(tdStatus);
         tr.appendChild(tdType);
         tr.appendChild(tdName);
+        tr.appendChild(tdModBy);
+        tr.appendChild(tdModDate);
 
         diffList.appendChild(tr);
     });
+
+    const renderedCheckboxes = Array.from(document.querySelectorAll('.file-checkbox'));
+    const allChecked = renderedCheckboxes.every(cb => cb.checked);
+    selectAll.checked = allChecked && renderedCheckboxes.length > 0;
 }
 
 selectAll.addEventListener('change', (e) => {
-    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = e.target.checked);
+    const isChecked = e.target.checked;
+    document.querySelectorAll('.file-checkbox').forEach(cb => {
+        cb.checked = isChecked;
+        const globalIdx = parseInt(cb.dataset.idx);
+        changedFiles[globalIdx].selected = isChecked;
+    });
+    updateSelectedCount();
 });
 
 function showDiff(idx) {
@@ -552,7 +812,7 @@ btnValidate.addEventListener('click', () => executeDeploy(true));
 btnDeploy.addEventListener('click', () => executeDeploy(false));
 
 async function executeDeploy(isCheckOnly) {
-    const selectedIndexes = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => parseInt(cb.dataset.idx));
+    const selectedIndexes = changedFiles.map((f, i) => f.selected ? i : -1).filter(i => i !== -1);
     if (selectedIndexes.length === 0) {
         alert("Please select at least one component to process.");
         return;
@@ -581,9 +841,19 @@ async function executeDeploy(isCheckOnly) {
             'profiles': 'Profile'
         };
 
-        selectedIndexes.forEach(idx => {
+        for (const idx of selectedIndexes) {
             const file = changedFiles[idx];
             deployZip.file(file.name, file.srcContent);
+
+            // Automatically include the corresponding associated metadata or base file
+            const isMeta = file.name.endsWith('-meta.xml');
+            const correspondingFileName = isMeta ? file.name.replace('-meta.xml', '') : file.name + '-meta.xml';
+            
+            // srcZip is defined globally during the fetch & compare stage
+            if (srcZip && srcZip.file(correspondingFileName)) {
+                const correspondingContent = await srcZip.file(correspondingFileName).async("string");
+                deployZip.file(correspondingFileName, correspondingContent);
+            }
 
             const parts = file.name.split('/');
             if (parts.length >= 3) {
@@ -595,7 +865,7 @@ async function executeDeploy(isCheckOnly) {
                 if (!typesMap[typeName]) typesMap[typeName] = new Set();
                 typesMap[typeName].add(filename);
             }
-        });
+        }
 
         let newPackageXml = `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
         for (const [type, members] of Object.entries(typesMap)) {
@@ -723,6 +993,17 @@ closeOrgManager.addEventListener('click', closeOrgModal);
 orgManagerModalBg.addEventListener('click', closeOrgModal);
 btnRefreshOrgs.addEventListener('click', loadOrgs);
 
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (modal && !modal.classList.contains('hidden')) {
+            closeDiff();
+        }
+        if (orgManagerModal && !orgManagerModal.classList.contains('hidden')) {
+            closeOrgModal();
+        }
+    }
+});
+
 async function checkSfdxStatusAndLoadOrgs() {
     try {
         const res = await fetch('/api/sfdx/status');
@@ -824,8 +1105,6 @@ window.openOrg = async function (username) {
 };
 
 window.setOrgTarget = async function (side, username) {
-    closeOrgModal();
-
     const instanceElem = side === 'source' ? srcInstance : tgtInstance;
     const sessionElem = side === 'source' ? srcSession : tgtSession;
 

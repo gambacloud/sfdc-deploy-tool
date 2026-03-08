@@ -256,6 +256,68 @@ async def check_deploy_status(
     return StreamingResponse(stream_response(), media_type="text/xml")
 
 
+class ListMetadataRequest(BaseModel):
+    instanceUrl: str
+    sessionId: str
+    apiVersion: str = "58.0"
+    types: List[str] # List of metadata types to query, max 3
+
+@app.post("/api/proxy/listMetadata")
+async def list_metadata(req: ListMetadataRequest):
+    """
+    Accepts a list of metadata types (up to 3) and queries the listMetadata API.
+    Returns a list of FileProperties.
+    """
+    instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
+    url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
+    
+    queries_xml = ""
+    for t in req.types[:3]:
+        queries_xml += f"<met:queries><met:type>{t}</met:type></met:queries>\n"
+        
+    list_soap = f"""<?xml version="1.0" encoding="utf-8"?>
+    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
+       <soapenv:Header>
+          <met:SessionHeader>
+             <met:sessionId>{req.sessionId}</met:sessionId>
+          </met:SessionHeader>
+       </soapenv:Header>
+       <soapenv:Body>
+          <met:listMetadata>
+{queries_xml}             <met:asOfVersion>{req.apiVersion}</met:asOfVersion>
+          </met:listMetadata>
+       </soapenv:Body>
+    </soapenv:Envelope>"""
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, content=list_soap, headers=get_soap_headers())
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"listMetadata failed: {resp.text}")
+            
+        root = ET.fromstring(resp.text)
+        namespaces = {'soapenv': 'http://schemas.xmlsoap.org/soap/envelope/', 'met': 'http://soap.sforce.com/2006/04/metadata'}
+        body = root.find('soapenv:Body', namespaces)
+        
+        # Salesforce SOAP faults check just in case HTTP status is 200 but there's a fault
+        fault = body.find('soapenv:Fault', namespaces)
+        if fault is not None:
+             faultstring = fault.findtext('faultstring', default="", namespaces=namespaces)
+             raise HTTPException(status_code=400, detail=f"listMetadata SOAP fault: {faultstring}")
+
+        list_response = body.find('met:listMetadataResponse', namespaces)
+        
+        results = []
+        if list_response is not None:
+            for res in list_response.findall('met:result', namespaces):
+                results.append({
+                    "fullName": res.findtext('met:fullName', default="", namespaces=namespaces),
+                    "type": res.findtext('met:type', default="", namespaces=namespaces),
+                    "lastModifiedByName": res.findtext('met:lastModifiedByName', default="", namespaces=namespaces),
+                    "lastModifiedDate": res.findtext('met:lastModifiedDate', default="", namespaces=namespaces)
+                })
+        return {"result": results}
+
+
 # --- REST API Proxy (Tooling API) ---
 
 @app.get("/api/proxy/tooling/query")

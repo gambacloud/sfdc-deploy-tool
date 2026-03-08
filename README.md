@@ -10,15 +10,9 @@ A high-performance, stateless web tool for comparing, validating, and deploying 
 - **Custom Testing**: Choose specific test levels (e.g., `RunLocalTests`, `RunSpecifiedTests`).
 - **Org Manager**: Automatically syncs and uses your existing local Salesforce CLI (`sf`) environments.
 - **Dependency Analyzer**: Check custom field/metadata usage and open them directly in Salesforce Setup.
-
-### Validation & Deployment
-![Deployment Flow](docs/demo_deployment.png)
-
-### Environment Selection (Org Manager)
-![Org Manager](docs/org_manager.png)
-
-### Dependency Analyzer (Field Usage)
-![Health Check](docs/health_check.png)
+- **Advanced Filtering & Sorting**: Quickly search components, filter by deployment status (New/Modified), or show only selected items. Sort by any column.
+- **Last Modified Data**: See who last modified a component and when directly in the diff table.
+- **Quick Swap**: Instantly swap Source and Target org credentials with a single click.
 
 ## Getting Started
 
