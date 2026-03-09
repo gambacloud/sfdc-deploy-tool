@@ -57,14 +57,16 @@
             border-radius: 4px;
         }
 
+        /* Improved Diff2Html Dark Mode Theme */
         .dark .d2h-file-header {
             background-color: #1f2937;
-            border-color: #374151;
-            color: #f3f4f6;
+            border-bottom: 1px solid #374151;
+            color: #e5e7eb;
         }
 
         .dark .d2h-file-wrapper {
-            border-color: #374151;
+            border: 1px solid #374151;
+            background-color: #111827;
         }
 
         .dark .d2h-code-line {
@@ -75,28 +77,53 @@
             background-color: #111827;
         }
 
+        .dark .d2h-code-line-prefix {
+            background-color: #111827;
+            color: #9ca3af;
+        }
+
         .dark .d2h-ins {
-            background-color: rgba(52, 211, 153, 0.15);
-            border-color: rgba(52, 211, 153, 0.3);
+            background-color: rgba(16, 185, 129, 0.15);
+            border-color: rgba(16, 185, 129, 0.3);
         }
 
         .dark .d2h-del {
-            background-color: rgba(248, 113, 113, 0.15);
-            border-color: rgba(248, 113, 113, 0.3);
+            background-color: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
         }
 
         .dark .d2h-code-linenumber {
             background-color: #1f2937;
             color: #9ca3af;
+            border-right: 1px solid #374151;
+        }
+        
+        .dark .d2h-emptyplaceholder {
+            background-color: #1f2937;
             border-color: #374151;
         }
 
         .dark .d2h-info {
             background-color: #374151;
+            color: #d1d5db;
         }
 
-        .dark .d2h-file-diff {
+        /* Fix Diff2Html Scrolling and Sticky Line Numbers */
+        .d2h-file-diff {
             overflow-x: auto;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .d2h-code-linenumber {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+        }
+        
+        /* Ensure the wrapper doesn't have an overflow that overrides scrolling */
+        .d2h-wrapper {
+            width: 100%;
         }
 
         @keyframes fadeIn {
@@ -242,6 +269,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
                                 </svg> Source
+                                <span id="srcOrgAliasLabel" class="text-xs text-blue-500 dark:text-blue-400 font-normal ml-1"></span>
                             </span>
                             <button id="btnSwapOrgs" class="p-1 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white/50 dark:hover:bg-gray-800/50 rounded transition-colors" title="Swap Source and Target">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,10 +293,13 @@
                         <div class="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
                         <h4
                             class="text-sm font-medium text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 ml-1">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                            </svg> Target
+                            <span class="flex items-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg> Target
+                                <span id="tgtOrgAliasLabel" class="text-xs text-emerald-600 dark:text-emerald-400 font-normal ml-1"></span>
+                            </span>
                         </h4>
                         <div>
                             <input type="text" id="tgtInstance" placeholder="Instance URL (https://na140...)"
@@ -444,7 +475,7 @@
         </aside>
 
         <!-- Main Content - Data Table -->
-        <main class="flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
+        <main class="flex-1 overflow-hidden relative flex flex-col min-h-0 bg-white dark:bg-gray-900 z-10">
 
             <!-- Empty State / Header -->
             <div id="emptyState" class="flex-1 flex flex-col items-center justify-center p-8 text-center fade-in">

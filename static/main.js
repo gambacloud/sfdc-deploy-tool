@@ -57,6 +57,9 @@ const selectedCountText = document.getElementById('selectedCountText');
 const showSelectedOnly = document.getElementById('showSelectedOnly');
 const statusFilter = document.getElementById('statusFilter');
 
+const srcOrgAliasLabel = document.getElementById('srcOrgAliasLabel');
+const tgtOrgAliasLabel = document.getElementById('tgtOrgAliasLabel');
+
 // State
 let srcZip = null;
 let tgtZip = null;
@@ -68,6 +71,24 @@ const presets = {
     nocode: ['Flow', 'ValidationRule'],
     config: ['CustomLabels', 'CustomMetadata', 'CustomField'],
     empty: []
+};
+
+// Metadata Type Mapping
+const FOLDER_TO_TYPE_MAP = {
+    'classes': 'ApexClass', 'pages': 'ApexPage', 'components': 'ApexComponent',
+    'triggers': 'ApexTrigger', 'aura': 'AuraDefinitionBundle', 'lwc': 'LightningComponentBundle',
+    'objects': 'CustomObject', 'layouts': 'Layout', 'permissionsets': 'PermissionSet',
+    'profiles': 'Profile', 'customMetadata': 'CustomMetadata', 'labels': 'CustomLabels',
+    'flows': 'Flow', 'workflows': 'Workflow', 'email': 'EmailTemplate',
+    'roles': 'Role', 'groups': 'Group', 'queues': 'Queue', 'connectedApps': 'ConnectedApp',
+    'approvalProcesses': 'ApprovalProcess', 'assignmentRules': 'AssignmentRule',
+    'autoResponseRules': 'AutoResponseRule', 'escalationRules': 'EscalationRule',
+    'postTemplate': 'PostTemplate', 'homePageLayouts': 'HomePageLayout',
+    'homePageComponents': 'HomePageComponent', 'objectTranslations': 'CustomObjectTranslation',
+    'flowDefinitions': 'FlowDefinition', 'weblinks': 'CustomPageWebLink',
+    'tabs': 'CustomTab', 'applications': 'CustomApplication',
+    'letterhead': 'Letterhead', 'reportTypes': 'ReportType',
+    'reports': 'Report', 'dashboards': 'Dashboard'
 };
 
 // --- Alpine.js Component for Manifest Builder ---
@@ -249,12 +270,15 @@ btnRetrieve.addEventListener('click', async () => {
 btnSwapOrgs.addEventListener('click', () => {
     const tempInstance = srcInstance.value;
     const tempSession = srcSession.value;
+    const tempAlias = srcOrgAliasLabel.textContent;
     
     srcInstance.value = tgtInstance.value;
     srcSession.value = tgtSession.value;
+    srcOrgAliasLabel.textContent = tgtOrgAliasLabel.textContent;
     
     tgtInstance.value = tempInstance;
     tgtSession.value = tempSession;
+    tgtOrgAliasLabel.textContent = tempAlias;
 });
 
 // --- Application Mode Toggling ---
@@ -480,19 +504,12 @@ async function compareZips(src, tgt) {
 async function fetchLastModifiedData(instanceUrl, sessionId) {
     if (changedFiles.length === 0) return;
 
-    const folderToTypeMap = {
-        'classes': 'ApexClass', 'pages': 'ApexPage', 'components': 'ApexComponent',
-        'triggers': 'ApexTrigger', 'aura': 'AuraDefinitionBundle', 'lwc': 'LightningComponentBundle',
-        'objects': 'CustomObject', 'layouts': 'Layout', 'permissionsets': 'PermissionSet',
-        'profiles': 'Profile', 'customMetadata': 'CustomMetadata', 'labels': 'CustomLabels'
-    };
-
     const typesNeeded = new Set();
     changedFiles.forEach(f => {
         const parts = f.name.replace('unpackaged/', '').split('/');
         if (parts.length >= 2) {
             const folder = parts[0];
-            const type = folderToTypeMap[folder] || folder;
+            const type = FOLDER_TO_TYPE_MAP[folder] || folder;
             typesNeeded.add(type);
         }
     });
@@ -630,13 +647,6 @@ function renderDiffTable() {
         return;
     }
 
-    const folderToType = {
-        'classes': 'ApexClass', 'pages': 'ApexPage', 'components': 'ApexComponent',
-        'triggers': 'ApexTrigger', 'aura': 'AuraDefinitionBundle', 'lwc': 'LightningComponentBundle',
-        'objects': 'CustomObject', 'layouts': 'Layout', 'permissionsets': 'PermissionSet',
-        'profiles': 'Profile', 'customMetadata': 'CustomMetadata', 'labels': 'CustomLabels'
-    };
-
     let filteredFiles = changedFiles;
     
     // Status Filter
@@ -657,7 +667,7 @@ function renderDiffTable() {
         filteredFiles = filteredFiles.filter(f => {
             const rawName = f.name.replace('unpackaged/', '');
             const parts = rawName.split('/');
-            const typeName = parts.length >= 2 ? (folderToType[parts[0]] || parts[0]) : 'Unknown';
+            const typeName = parts.length >= 2 ? (FOLDER_TO_TYPE_MAP[parts[0]] || parts[0]) : 'Unknown';
             const compName = parts.length >= 2 ? parts.slice(1).join('/') : rawName;
             
             return f.status.toLowerCase().includes(q) || 
@@ -729,7 +739,7 @@ function renderDiffTable() {
         let compName = rawName;
 
         if (parts.length >= 2) {
-            typeName = folderToType[parts[0]] || parts[0];
+            typeName = FOLDER_TO_TYPE_MAP[parts[0]] || parts[0];
             compName = parts.slice(1).join('/');
         }
 
@@ -775,12 +785,17 @@ selectAll.addEventListener('change', (e) => {
     updateSelectedCount();
 });
 
+function closeDiff() {
+    modal.classList.add('hidden');
+}
+
 function showDiff(idx) {
     const f = changedFiles[idx];
     modalTitle.textContent = f.name.replace('unpackaged/', '');
 
+    // Clarify labels - Target = Current Org State, Source = Incoming Changes
     const patch = Diff.createTwoFilesPatch(
-        f.name + " (Target)", f.name + " (Source)",
+        "Target: " + f.name, "Source: " + f.name,
         f.tgtContent, f.srcContent
     );
 
@@ -803,9 +818,7 @@ function showDiff(idx) {
     }, 10);
 }
 
-closeModalBtn.onclick = () => {
-    modal.classList.add('hidden');
-};
+closeModalBtn.onclick = closeDiff;
 
 // Deploy Flow
 btnValidate.addEventListener('click', () => executeDeploy(true));
@@ -828,19 +841,6 @@ async function executeDeploy(isCheckOnly) {
         const deployZip = new JSZip();
         const typesMap = {};
 
-        const folderToType = {
-            'classes': 'ApexClass',
-            'pages': 'ApexPage',
-            'components': 'ApexComponent',
-            'triggers': 'ApexTrigger',
-            'aura': 'AuraDefinitionBundle',
-            'lwc': 'LightningComponentBundle',
-            'objects': 'CustomObject',
-            'layouts': 'Layout',
-            'permissionsets': 'PermissionSet',
-            'profiles': 'Profile'
-        };
-
         for (const idx of selectedIndexes) {
             const file = changedFiles[idx];
             deployZip.file(file.name, file.srcContent);
@@ -860,7 +860,7 @@ async function executeDeploy(isCheckOnly) {
                 const folder = parts[1];
                 let filename = parts.slice(2).join('/');
                 filename = filename.split('.')[0];
-                const typeName = folderToType[folder] || folder;
+                const typeName = FOLDER_TO_TYPE_MAP[folder] || folder;
 
                 if (!typesMap[typeName]) typesMap[typeName] = new Set();
                 typesMap[typeName].add(filename);
@@ -1069,8 +1069,8 @@ function renderOrgsTable(orgs) {
 
         // Action Buttons
         const btnClasses = "px-2.5 py-1 text-xs font-medium rounded border transition-colors focus:outline-none";
-        const btnSource = `<button onclick="setOrgTarget('source', '${org.targetOrg || org.username}')" class="${btnClasses} bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/50 dark:hover:bg-blue-900/50 shadow-sm" ${!isConnected ? 'disabled' : ''}>Set Source</button>`;
-        const btnTarget = `<button onclick="setOrgTarget('target', '${org.targetOrg || org.username}')" class="${btnClasses} bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50 dark:hover:bg-emerald-900/50 shadow-sm" ${!isConnected ? 'disabled' : ''}>Set Target</button>`;
+        const btnSource = `<button onclick="setOrgTarget('source', '${org.targetOrg || org.username}', '${org.alias || ''}')" class="${btnClasses} bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/50 dark:hover:bg-blue-900/50 shadow-sm" ${!isConnected ? 'disabled' : ''}>Set Source</button>`;
+        const btnTarget = `<button onclick="setOrgTarget('target', '${org.targetOrg || org.username}', '${org.alias || ''}')" class="${btnClasses} bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50 dark:hover:bg-emerald-900/50 shadow-sm" ${!isConnected ? 'disabled' : ''}>Set Target</button>`;
         const btnOpen = `<button onclick="openOrg('${org.targetOrg || org.username}')" class="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 dark:text-gray-400 dark:hover:text-indigo-400 rounded transition-colors" title="Open in Browser" ${!isConnected ? 'disabled' : ''}><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></button>`;
 
         tr.innerHTML = `
@@ -1104,11 +1104,13 @@ window.openOrg = async function (username) {
     }
 };
 
-window.setOrgTarget = async function (side, username) {
+window.setOrgTarget = async function (side, username, alias) {
     const instanceElem = side === 'source' ? srcInstance : tgtInstance;
     const sessionElem = side === 'source' ? srcSession : tgtSession;
+    const labelElem = side === 'source' ? srcOrgAliasLabel : tgtOrgAliasLabel;
 
     sessionElem.value = "Fetching token...";
+    labelElem.textContent = alias ? `[${alias}]` : '';
 
     try {
         const res = await fetch(`/api/sfdx/token/${username}`);
