@@ -557,7 +557,7 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
         const parts = f.name.replace('unpackaged/', '').split('/');
         if (parts.length >= 2) {
             const folder = parts[0];
-            const type = folderToTypeMap[folder] || folder;
+            const type = FOLDER_TO_TYPE_MAP[folder] || folder;
             let fullName = parts.slice(1).join('/');
             
             const noExtTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomLabels'];
@@ -684,12 +684,12 @@ function renderDiffTable() {
         
         const rawNameA = a.name.replace('unpackaged/', '');
         const partsA = rawNameA.split('/');
-        const typeNameA = partsA.length >= 2 ? (folderToType[partsA[0]] || partsA[0]) : 'Unknown';
+        const typeNameA = partsA.length >= 2 ? (FOLDER_TO_TYPE_MAP[partsA[0]] || partsA[0]) : 'Unknown';
         const compNameA = partsA.length >= 2 ? partsA.slice(1).join('/') : rawNameA;
 
         const rawNameB = b.name.replace('unpackaged/', '');
         const partsB = rawNameB.split('/');
-        const typeNameB = partsB.length >= 2 ? (folderToType[partsB[0]] || partsB[0]) : 'Unknown';
+        const typeNameB = partsB.length >= 2 ? (FOLDER_TO_TYPE_MAP[partsB[0]] || partsB[0]) : 'Unknown';
         const compNameB = partsB.length >= 2 ? partsB.slice(1).join('/') : rawNameB;
 
         if (currentSortColumn === 'status') {
