@@ -84,7 +84,7 @@ async def retrieve_metadata(req: RetrieveRequest):
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
         init_resp = await client.post(url, content=retrieve_soap, headers=get_soap_headers())
         if init_resp.status_code != 200:
             raise HTTPException(status_code=400, detail=f"Failed to initiate retrieve: {init_resp.text}")
@@ -116,7 +116,7 @@ async def retrieve_metadata(req: RetrieveRequest):
     </soapenv:Envelope>"""
 
     async def poll_and_stream():
-        client = httpx.AsyncClient()
+        client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
         while True:
             # We must use stream() right from the start. Once a successful response is pulled,
             # Salesforce deletes the result locator on their end, so we can't fetch it a second time.
@@ -194,7 +194,7 @@ async def deploy_metadata(req: DeployRequest):
     </soapenv:Envelope>"""
 
     # We do not use stream() here because we just want to return the jobId parsed from the response
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
         print(f"[DEPLOY] Initiating deployment to {instance_url} (CheckOnly: {req.checkOnly}, TestLevel: {req.testLevel})...")
         resp = await client.post(url, content=deploy_soap, headers=get_soap_headers())
         if resp.status_code != 200:
@@ -248,7 +248,7 @@ async def check_deploy_status(
 
     # Stream the raw SOAP XML response back directly to bypass memory parsing limits!
     # The Frontend Vanilla JS parse it.
-    client = httpx.AsyncClient()
+    client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
     async def stream_response():
         async with client.stream("POST", url, content=status_soap, headers=get_soap_headers()) as r:
             async for chunk in r.aiter_raw():
@@ -289,7 +289,7 @@ async def list_metadata(req: ListMetadataRequest):
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
         resp = await client.post(url, content=list_soap, headers=get_soap_headers())
         if resp.status_code != 200:
             raise HTTPException(status_code=400, detail=f"listMetadata failed: {resp.text}")
@@ -334,7 +334,7 @@ async def tooling_query(instanceUrl: str, sessionId: str, q: str):
         "Accept": "application/json"
     }
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
         res = await client.get(url, params={"q": q}, headers=headers)
         
         if res.status_code != 200:
