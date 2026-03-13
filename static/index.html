@@ -681,6 +681,150 @@
         </div>
     </div>
 
+    <!-- Deployment Result / Terminal Modal -->
+    <div id="deployResultModal" class="hidden fixed inset-0 z-[70] overflow-y-auto" x-data x-show="$store.deploy.show" x-cloak>
+        <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
+            <div class="fixed inset-0 bg-gray-900/90 backdrop-blur-md transition-opacity" @click="if ($store.deploy.status !== 'InProgress') $store.deploy.show = false"></div>
+            <div class="inline-block align-bottom bg-gray-900 rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle w-full max-w-4xl border border-gray-700 flex flex-col h-[85vh] text-gray-300">
+                
+                <!-- Terminal Header -->
+                <div class="px-6 py-4 border-b border-gray-800 flex justify-between items-center bg-gray-800/50 flex-none">
+                    <div class="flex items-center gap-3">
+                        <div class="flex gap-1.5">
+                            <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                        </div>
+                        <h3 class="text-sm font-mono font-medium text-gray-200">
+                            deployment_terminal <span class="text-gray-500">--</span> <span x-text="$store.deploy.isCheckOnly ? 'validation' : 'deployment'"></span>
+                        </h3>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div x-show="$store.deploy.status === 'InProgress'" class="flex items-center gap-2">
+                            <svg class="animate-spin h-4 w-4 text-salesforce" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span class="text-xs font-mono text-gray-500">POLLING...</span>
+                        </div>
+                        <button @click="$store.deploy.show = false" x-show="$store.deploy.status !== 'InProgress'" class="text-gray-500 hover:text-white transition-colors">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Terminal Content -->
+                <div class="flex-1 flex flex-col min-h-0 bg-black/40">
+                    <!-- Progress Summary Bar -->
+                    <div class="p-6 pb-0 flex-none">
+                        <div class="flex justify-between items-end mb-2 font-mono">
+                            <div class="space-y-1">
+                                <p class="text-[11px] text-gray-500 uppercase tracking-widest">Job Status</p>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-lg font-bold" :class="{
+                                        'text-blue-400': $store.deploy.status === 'InProgress' || $store.deploy.status === 'Queued',
+                                        'text-emerald-400': $store.deploy.status === 'Succeeded',
+                                        'text-rose-400': $store.deploy.status === 'Failed'
+                                    }" x-text="$store.deploy.status"></span>
+                                    <span class="text-xs text-gray-600 border border-gray-800 rounded px-2" x-text="$store.deploy.jobId"></span>
+                                </div>
+                            </div>
+                            <div class="text-right space-y-1">
+                                <p class="text-[11px] text-gray-500 uppercase tracking-widest">Overall Progress</p>
+                                <p class="text-xl font-bold text-gray-200" x-text="$store.deploy.progress + '%'"></p>
+                            </div>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-2 overflow-hidden border border-gray-700">
+                            <div class="h-2 rounded-full transition-all duration-500" :style="'width: ' + $store.deploy.progress + '%'" :class="{
+                                'bg-salesforce': $store.deploy.status !== 'Failed',
+                                'bg-rose-500': $store.deploy.status === 'Failed'
+                            }"></div>
+                        </div>
+                    </div>
+
+                    <!-- Main Split View (Terminal Output + Coverage) -->
+                    <div class="flex-1 flex min-h-0 p-6 gap-6 overflow-hidden">
+                        <!-- Left: Live Log -->
+                        <div class="flex-1 flex flex-col min-h-0 bg-black/60 rounded-lg border border-gray-800 p-4 font-mono text-xs overflow-hidden">
+                            <div class="flex-1 overflow-y-auto space-y-1 custom-scrollbar" id="terminalLog">
+                                <p class="text-gray-500 italic mb-2">Initializing session...</p>
+                                <template x-for="log in $store.deploy.logs" :key="log.id">
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-700 select-none">[$]</span>
+                                        <span :class="{
+                                            'text-emerald-400': log.type === 'success',
+                                            'text-rose-400': log.type === 'error',
+                                            'text-blue-400': log.type === 'info',
+                                            'text-gray-400': log.type === 'default'
+                                        }" x-text="log.msg"></span>
+                                    </div>
+                                </template>
+                                <div id="terminalBottom"></div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Detailed Results / Coverage -->
+                        <div class="w-80 flex flex-col gap-4 flex-none">
+                            <!-- Coverage Card -->
+                            <div class="bg-gray-800/40 rounded-lg border border-gray-700 p-4 flex flex-col gap-3">
+                                <div class="flex justify-between items-center">
+                                    <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Apex Coverage</h4>
+                                    <span x-show="$store.deploy.coverage" class="px-2 py-0.5 rounded text-[10px] font-bold" 
+                                        :class="$store.deploy.coverage >= 75 ? 'bg-green-900/30 text-green-400 border border-green-800/50' : 'bg-rose-900/30 text-rose-400 border border-rose-800/50'"
+                                        x-text="$store.deploy.coverage + '%'"></span>
+                                </div>
+                                
+                                <div x-show="!$store.deploy.coverage" class="py-4 text-center">
+                                    <p class="text-xs text-gray-600 italic">Waiting for test results...</p>
+                                </div>
+
+                                <div x-show="$store.deploy.coverage" class="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                    <template x-for="cls in $store.deploy.classCoverage" :key="cls.name">
+                                        <div class="flex flex-col gap-1">
+                                            <div class="flex justify-between text-[11px] font-mono">
+                                                <span class="truncate pr-2 text-gray-400" x-text="cls.name"></span>
+                                                <span :class="cls.pct >= 75 ? 'text-green-400' : 'text-rose-400'" x-text="cls.pct + '%'"></span>
+                                            </div>
+                                            <div class="w-full bg-gray-900 rounded-full h-1">
+                                                <div class="h-1 rounded-full" :style="'width: ' + cls.pct + '%'" :class="cls.pct >= 75 ? 'bg-green-500' : 'bg-rose-500'"></div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Component Stats -->
+                            <div class="bg-gray-800/40 rounded-lg border border-gray-700 p-4 space-y-3">
+                                <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Component Run</h4>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div class="bg-black/20 rounded p-2 text-center">
+                                        <p class="text-[10px] text-gray-500 font-mono">Deployed</p>
+                                        <p class="text-lg font-bold text-gray-200" x-text="$store.deploy.deployed + '/' + $store.deploy.total"></p>
+                                    </div>
+                                    <div class="bg-black/20 rounded p-2 text-center">
+                                        <p class="text-[10px] text-gray-500 font-mono">Errors</p>
+                                        <p class="text-lg font-bold" :class="$store.deploy.errors > 0 ? 'text-rose-400' : 'text-gray-500'" x-text="$store.deploy.errors"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Terminal Footer -->
+                <div class="px-6 py-4 border-t border-gray-800 flex justify-between items-center bg-gray-800/30 flex-none rounded-b-xl">
+                    <div class="text-[10px] text-gray-500 font-mono flex items-center gap-2">
+                        <div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+                        <span>Org Connected | <span x-text="new Date().toLocaleTimeString()"></span></span>
+                    </div>
+                    <div class="flex gap-3">
+                        <button id="terminalScreenshotBtn" x-show="$store.deploy.status !== 'InProgress'" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all">
+                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                             Snapshot Proof
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Org Manager Modal -->
     <div id="orgManagerModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title"
         role="dialog" aria-modal="true">
@@ -850,51 +994,6 @@
         // Close modal on background click
         document.getElementById('diffModalBg').addEventListener('click', () => {
             document.getElementById('diffModal').classList.add('hidden');
-        });
-
-        // Screenshot logic
-        const screenshotBtn = document.getElementById('screenshotBtn');
-        screenshotBtn.addEventListener('click', async () => {
-            try {
-                const originalIcon = screenshotBtn.innerHTML;
-
-                // Show loading spinner
-                screenshotBtn.innerHTML = `<svg class="animate-spin w-5 h-5 text-salesforce" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
-
-                // Allow UI to update with spinner
-                await new Promise(resolve => setTimeout(resolve, 50));
-
-                const canvas = await html2canvas(document.body, {
-                    backgroundColor: document.documentElement.classList.contains('dark') ? '#111827' : '#f9fafb',
-                    windowWidth: document.body.scrollWidth,
-                    windowHeight: document.body.scrollHeight,
-                });
-
-                canvas.toBlob(async (blob) => {
-                    if (!blob) throw new Error("Canvas capture failed");
-
-                    try {
-                        const clipboardItem = new ClipboardItem({ "image/png": blob });
-                        await navigator.clipboard.write([clipboardItem]);
-
-                        // Show success checkmark
-                        screenshotBtn.innerHTML = `<svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
-                    } catch (err) {
-                        console.error('Clipboard write error:', err);
-                        alert('Could not save to clipboard. Check browser permissions.');
-                    }
-
-                    // Reset icon after 2 seconds
-                    setTimeout(() => {
-                        screenshotBtn.innerHTML = originalIcon;
-                    }, 2000);
-                }, "image/png");
-
-            } catch (err) {
-                console.error("Screenshot failed:", err);
-                screenshotBtn.innerHTML = originalIcon;
-                alert("An error occurred while taking the screenshot.");
-            }
         });
     </script>
 </body>

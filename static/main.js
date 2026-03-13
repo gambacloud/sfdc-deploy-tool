@@ -256,6 +256,56 @@ document.addEventListener('alpine:init', () => {
             Alpine.store('members').open(type, srcInstance.value, srcSession.value);
         }
     }));
+
+    Alpine.store('deploy', {
+        show: false,
+        status: 'Idle',
+        progress: 0,
+        jobId: '',
+        isCheckOnly: false,
+        logs: [],
+        deployed: 0,
+        total: 0,
+        errors: 0,
+        coverage: 0,
+        classCoverage: [],
+        processedIds: new Set(), // To avoid duplicate logs
+
+        reset(isCheckOnly) {
+            this.show = true;
+            this.status = 'Queued';
+            this.progress = 0;
+            this.jobId = 'Pending...';
+            this.isCheckOnly = isCheckOnly;
+            this.logs = [];
+            this.deployed = 0;
+            this.total = 0;
+            this.errors = 0;
+            this.coverage = 0;
+            this.classCoverage = [];
+            this.processedIds = new Set();
+            
+            // Clear the actual terminal DOM if needed, though logs is reactive
+            this.addLog('info', `Initializing ${isCheckOnly ? 'validation' : 'deployment'} sequence...`);
+        },
+
+        addLog(type, msg, id = null) {
+            if (id && this.processedIds.has(id)) return;
+            if (id) this.processedIds.add(id);
+
+            this.logs.push({
+                id: Date.now() + Math.random(),
+                type: type || 'default',
+                msg: msg
+            });
+
+            // Auto-scroll terminal
+            setTimeout(() => {
+                const el = document.getElementById('terminalLog');
+                if (el) el.scrollTop = el.scrollHeight;
+            }, 10);
+        }
+    });
 });
 // ------------------------------------------------
 // Utils
@@ -1125,14 +1175,19 @@ async function executeDeploy(isCheckOnly) {
         return;
     }
 
+    // Initialize Terminal Overlay
+    Alpine.store('deploy').reset(isCheckOnly);
+
     deployStatus.classList.remove('hidden');
     btnValidate.disabled = true;
     btnDeploy.disabled = true;
 
     try {
+        Alpine.store('deploy').addLog('info', 'Building deployment ZIP package...');
         setProgress(deployProgress, deployMsg, 10, 'Building deployment ZIP...', false);
 
         const deployZip = new JSZip();
+        // ... (rest of zip logic remains same)
         const typesMap = {};
 
         for (const idx of selectedIndexes) {
@@ -1193,16 +1248,19 @@ async function executeDeploy(isCheckOnly) {
             const err = await res.text();
             throw new Error(`Deploy Proxy Error: ${err}`);
         }
-
         const data = await res.json();
         const jobId = data.jobId;
+        Alpine.store('deploy').jobId = jobId;
 
         const actionStr = isCheckOnly ? "Validation" : "Deploy";
+        Alpine.store('deploy').addLog('info', `${actionStr} job queued to Salesforce.`);
         setProgress(deployProgress, deployMsg, 50, `${actionStr} Job Queued (${jobId}). Polling status...`, false);
 
         await pollDeployStatus(jobId, tgtInstance.value, tgtSession.value, isCheckOnly);
 
     } catch (err) {
+        Alpine.store('deploy').addLog('error', `Deployment Failed: ${err.message}`);
+        Alpine.store('deploy').status = 'Failed';
         setProgress(deployProgress, deployMsg, 100, err.message, true);
     } finally {
         btnValidate.disabled = false;
@@ -1212,6 +1270,8 @@ async function executeDeploy(isCheckOnly) {
 
 async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
     let done = false;
+    const store = Alpine.store('deploy');
+
     while (!done) {
         await new Promise(r => setTimeout(r, 3000));
 
@@ -1236,8 +1296,77 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
         }
 
         const status = statusNode.textContent;
+        store.status = status;
         
-        // Granular Progress Calculation
+        // --- Aggressive Parsing for Terminal ---
+        const details = xmlDoc.getElementsByTagName("details")[0] || xmlDoc.getElementsByTagName("met:details")[0];
+        if (details) {
+            // 1. Successes
+            const successes = details.getElementsByTagName("componentSuccesses") || details.getElementsByTagName("met:componentSuccesses");
+            for (const s of successes) {
+                const name = s.getElementsByTagName("fullName")[0]?.textContent;
+                const type = s.getElementsByTagName("componentType")[0]?.textContent;
+                if (name && type && !name.includes('package.xml')) {
+                    store.addLog('success', `Component: ${type} - ${name} ... Success`, `succ_${name}`);
+                }
+            }
+
+            // 2. Failures
+            const failures = details.getElementsByTagName("componentFailures") || details.getElementsByTagName("met:componentFailures");
+            for (const f of failures) {
+                const name = f.getElementsByTagName("fullName")[0]?.textContent;
+                const problem = f.getElementsByTagName("problem")[0]?.textContent;
+                if (name && problem) {
+                    store.addLog('error', `Error in ${name}: ${problem}`, `fail_${name}`);
+                    store.errors++;
+                }
+            }
+
+            // 3. Tests
+            const testResult = details.getElementsByTagName("runTestResult")[0] || details.getElementsByTagName("met:runTestResult")[0];
+            if (testResult) {
+                const testSuccesses = testResult.getElementsByTagName("successes") || testResult.getElementsByTagName("met:successes");
+                for (const ts of testSuccesses) {
+                    const mName = ts.getElementsByTagName("methodName")[0]?.textContent;
+                    const cName = ts.getElementsByTagName("name")[0]?.textContent;
+                    if (mName) store.addLog('info', `Test Passed: ${cName}.${mName}`, `test_${cName}_${mName}`);
+                }
+
+                const testFailures = testResult.getElementsByTagName("failures") || testResult.getElementsByTagName("met:failures");
+                for (const tf of testFailures) {
+                    const mName = tf.getElementsByTagName("methodName")[0]?.textContent;
+                    const cName = tf.getElementsByTagName("name")[0]?.textContent;
+                    const msg = tf.getElementsByTagName("message")[0]?.textContent;
+                    if (mName) store.addLog('error', `Test Failed: ${cName}.${mName} - ${msg}`, `test_fail_${cName}_${mName}`);
+                }
+
+                // Coverage
+                const coverageList = testResult.getElementsByTagName("codeCoverage") || testResult.getElementsByTagName("met:codeCoverage");
+                let totalLocations = 0;
+                let totalUncovered = 0;
+                const classCov = [];
+
+                for (const c of coverageList) {
+                    const cName = c.getElementsByTagName("name")[0]?.textContent;
+                    const numUncovered = parseInt(c.getElementsByTagName("numLocationsNotCovered")[0]?.textContent) || 0;
+                    const numTotal = parseInt(c.getElementsByTagName("numLocations")[0]?.textContent) || 0;
+                    
+                    if (numTotal > 0) {
+                        const pct = Math.round(((numTotal - numUncovered) / numTotal) * 100);
+                        classCov.push({ name: cName, pct: pct });
+                        totalLocations += numTotal;
+                        totalUncovered += numUncovered;
+                    }
+                }
+                
+                if (totalLocations > 0) {
+                    store.coverage = Math.round(((totalLocations - totalUncovered) / totalLocations) * 100);
+                    store.classCoverage = classCov.sort((a, b) => a.pct - b.pct);
+                }
+            }
+        }
+
+        // --- Standard Progress logic ---
         let progressPct = null;
         let progressMsg = "";
         
@@ -1251,6 +1380,9 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
             const total = parseInt(totalNode.textContent) || 0;
             const testsDone = parseInt(testsDeployedNode?.textContent) || 0;
             const testsTotal = parseInt(testsTotalNode?.textContent) || 0;
+            
+            store.deployed = deployed;
+            store.total = total;
 
             if (total > 0) {
                 // components are roughly 0-70% of wait time, tests 70-100%
@@ -1267,21 +1399,61 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
             }
         }
 
+        if (progressPct !== null) store.progress = progressPct;
+
         const actionStr = isCheckOnly ? "Validation" : "Deploy";
         setProgress(deployProgress, deployMsg, progressPct, `${actionStr} Status: ${status}. ${progressMsg}`, false);
 
         if (status === 'Succeeded' || status === 'Failed' || status === 'Canceled') {
             done = true;
-            if (status === 'Succeeded') {
-                setProgress(deployProgress, deployMsg, 100, `${actionStr} Succeeded! 🎉`, false);
-            } else {
-                const errNode = xmlDoc.getElementsByTagName("problem")[0] || xmlDoc.getElementsByTagName("met:problem")[0];
-                const msg = errNode ? errNode.textContent : `${actionStr} Failed. Check Salesforce for details.`;
-                setProgress(deployProgress, deployMsg, 100, msg, true);
-            }
+            if (status === 'Succeeded') store.addLog('success', `${actionStr} completed successfully.`);
+            else store.addLog('error', `${actionStr} finished with status: ${status}`);
         }
     }
 }
+
+// --- Snapshot Utility ---
+window.takeScreenshot = async (btn) => {
+    try {
+        const originalIcon = btn.innerHTML;
+        btn.innerHTML = `<svg class="animate-spin w-4 h-4 text-salesforce" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+        
+        await new Promise(r => setTimeout(r, 100));
+
+        const canvas = await html2canvas(document.body, {
+            backgroundColor: document.documentElement.classList.contains('dark') ? '#111827' : '#f9fafb',
+            windowWidth: document.body.scrollWidth,
+            windowHeight: document.body.scrollHeight,
+            useCORS: true,
+            logging: false
+        });
+
+        canvas.toBlob(async (blob) => {
+            if (!blob) throw new Error("Canvas capture failed");
+            try {
+                const clipboardItem = new ClipboardItem({ "image/png": blob });
+                await navigator.clipboard.write([clipboardItem]);
+                btn.innerHTML = `<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+            } catch (err) {
+                console.error('Clipboard error:', err);
+                alert('Could not save to clipboard.');
+            }
+            setTimeout(() => btn.innerHTML = originalIcon, 2000);
+        }, "image/png");
+
+    } catch (err) {
+        console.error("Screenshot failed:", err);
+        alert("Screenshot failed.");
+    }
+};
+
+// Listeners for both screenshot buttons
+document.getElementById('screenshotBtn')?.addEventListener('click', (e) => window.takeScreenshot(e.currentTarget));
+document.addEventListener('click', (e) => {
+    if (e.target.closest('#terminalScreenshotBtn')) {
+        window.takeScreenshot(e.target.closest('#terminalScreenshotBtn'));
+    }
+});
 
 // --- Org Manager (SFDX Integration) ---
 const orgManagerBtn = document.getElementById('orgManagerBtn');
