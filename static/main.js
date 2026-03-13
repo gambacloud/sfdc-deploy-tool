@@ -92,9 +92,77 @@ const FOLDER_TO_TYPE_MAP = {
 };
 
 // --- Alpine.js Component for Manifest Builder ---
+// --- Alpine.js Store for Member Selection ---
 document.addEventListener('alpine:init', () => {
+    Alpine.store('members', {
+        show: false,
+        loading: false,
+        type: '',
+        searchQuery: '',
+        all: [],
+        
+        get filtered() {
+            if (!this.searchQuery) return this.all;
+            const q = this.searchQuery.toLowerCase();
+            return this.all.filter(m => m.toLowerCase().includes(q));
+        },
+
+        async open(type, instanceUrl, sessionId) {
+            this.type = type;
+            this.show = true;
+            this.loading = true;
+            this.all = [];
+            this.searchQuery = '';
+
+            try {
+                // Use the same logic as fetchMetadata to decide if we use SOQL or listMetadata
+                const soqlSupportedTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomMetadata'];
+                if (soqlSupportedTypes.includes(type)) {
+                    let q = "";
+                    if (type === 'CustomObject' || type === 'CustomMetadata') {
+                        const isCmdt = (type === 'CustomMetadata');
+                        q = `SELECT QualifiedApiName FROM EntityDefinition WHERE IsCustomMetadataDefinition = ${isCmdt}`;
+                    } else {
+                        q = `SELECT Name FROM ${type}`;
+                    }
+                    
+                    const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(await res.text());
+                    const data = await res.json();
+                    this.all = (data.records || []).map(r => r.Name || r.QualifiedApiName).sort();
+                } else {
+                    // Fallback to listMetadata
+                    const res = await fetch('/api/proxy/listMetadata', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ instanceUrl, sessionId, types: [type] })
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    const data = await res.json();
+                    this.all = (data.result || []).map(r => r.fullName).sort();
+                }
+            } catch (e) {
+                console.error("Error loading members:", e);
+                alert("Failed to load members: " + e.message);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        isSelected(member) {
+            const manifest = Alpine.data('manifestBuilder')(); // This won't work easily, store needs to update the component
+            // We'll handle this by letting the component own the selections
+            return false;
+        },
+        toggle(member) { /* placeholder, logic handled in component */ },
+        clear() { /* placeholder */ },
+        selectedCount() { return 0; }
+    });
+
     Alpine.data('manifestBuilder', () => ({
         searchQuery: '',
+        memberSelections: {}, // type -> Array of names
 
         // Comprehensive list of common Salesforce Metadata Types
         allAvailableTypes: [
@@ -116,7 +184,7 @@ document.addEventListener('alpine:init', () => {
             'Translations', 'ValidationRule', 'WebLink', 'Workflow'
         ].sort(),
 
-        selectedTypes: ['ApexClass'], // Default selection
+        selectedTypes: ['ApexClass'],
 
         get filteredAvailableTypes() {
             if (this.searchQuery === '') return this.allAvailableTypes;
@@ -131,7 +199,16 @@ document.addEventListener('alpine:init', () => {
 
             let xml = `<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
             this.selectedTypes.forEach(type => {
-                xml += `  <types>\n    <members>*</members>\n    <name>${type}</name>\n  </types>\n`;
+                xml += `  <types>\n`;
+                const members = this.memberSelections[type] || [];
+                if (members.length === 0) {
+                    xml += `    <members>*</members>\n`;
+                } else {
+                    members.forEach(m => {
+                        xml += `    <members>${m}</members>\n`;
+                    });
+                }
+                xml += `    <name>${type}</name>\n  </types>\n`;
             });
             xml += `  <version>58.0</version>\n</Package>`;
             return xml;
@@ -146,12 +223,37 @@ document.addEventListener('alpine:init', () => {
 
         removeType(type) {
             this.selectedTypes = this.selectedTypes.filter(t => t !== type);
+            delete this.memberSelections[type];
         },
 
         loadPreset(presetName) {
             if (presets[presetName]) {
                 this.selectedTypes = [...presets[presetName]].sort();
+                this.memberSelections = {};
             }
+        },
+
+        browseMembers(type) {
+            if (!srcInstance.value || !srcSession.value) return alert("Please provide Source Org credentials first.");
+            
+            // Link store to this instance
+            Alpine.store('members').isSelected = (member) => {
+                return (this.memberSelections[type] || []).includes(member);
+            };
+            Alpine.store('members').toggle = (member) => {
+                if (!this.memberSelections[type]) this.memberSelections[type] = [];
+                const idx = this.memberSelections[type].indexOf(member);
+                if (idx > -1) this.memberSelections[type].splice(idx, 1);
+                else this.memberSelections[type].push(member);
+            };
+            Alpine.store('members').clear = () => {
+                this.memberSelections[type] = [];
+            };
+            Alpine.store('members').selectedCount = () => {
+                return (this.memberSelections[type] || []).length;
+            };
+
+            Alpine.store('members').open(type, srcInstance.value, srcSession.value);
         }
     }));
 });
@@ -188,7 +290,7 @@ const fastCompareToggle = document.getElementById('fastCompareToggle');
 
 async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare = false) {
     let finalZip = new JSZip();
-    let typesToRetrieve = [];
+    let typesToRetrieve = []; // Array of objects { name, members }
 
     // 1. Parse XML payload to know what to fetch
     const parser = new DOMParser();
@@ -197,7 +299,15 @@ async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare 
     
     for (const typeNode of typesNodes) {
         const nameNode = typeNode.getElementsByTagName("name")[0];
-        if (nameNode) typesToRetrieve.push(nameNode.textContent);
+        if (nameNode) {
+            const typeName = nameNode.textContent;
+            const members = [];
+            const memberNodes = typeNode.getElementsByTagName("members");
+            for (const m of memberNodes) {
+                members.push(m.textContent);
+            }
+            typesToRetrieve.push({ name: typeName, members: members });
+        }
     }
 
     // 2. Identify Fast Types vs Slow Types
@@ -207,7 +317,7 @@ async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare 
 
     if (useFastCompare) {
         typesToRetrieve.forEach(t => {
-            if (supportedFastTypes.includes(t)) fastTypes.push(t);
+            if (supportedFastTypes.includes(t.name)) fastTypes.push(t);
             else slowTypes.push(t);
         });
     } else {
@@ -222,7 +332,11 @@ async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare 
         // Build a restricted package.xml just for the slow types
         let restrictedXml = `<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
         slowTypes.forEach(type => {
-            restrictedXml += `  <types>\n    <members>*</members>\n    <name>${type}</name>\n  </types>\n`;
+            restrictedXml += `  <types>\n`;
+            type.members.forEach(m => {
+                restrictedXml += `    <members>${m}</members>\n`;
+            });
+            restrictedXml += `    <name>${type.name}</name>\n  </types>\n`;
         });
         restrictedXml += `  <version>58.0</version>\n</Package>`;
 
@@ -262,10 +376,13 @@ async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare 
     return finalZip;
 }
 
-async function fetchCodeViaRestApi(instanceUrl, sessionId, types) {
+async function fetchCodeViaRestApi(instanceUrl, sessionId, typeConfigs) {
     const zip = new JSZip();
     
-    const fetchType = async (type) => {
+    const fetchType = async (config) => {
+        const type = config.name;
+        const members = config.members;
+        
         let folder = "";
         let ext = "";
         
@@ -275,7 +392,13 @@ async function fetchCodeViaRestApi(instanceUrl, sessionId, types) {
         else if (type === 'ApexComponent') { folder = "components"; ext = ".component"; }
 
         // Query code
-        const q = `SELECT Name, Body, Markup, ApiVersion, Status, NamespacePrefix FROM ${type}`;
+        let where = "";
+        if (members.length > 0 && !members.includes('*')) {
+            const escapedNames = members.map(m => `'${m}'`).join(',');
+            where = ` WHERE Name IN (${escapedNames})`;
+        }
+        
+        const q = `SELECT Name, Body, Markup, ApiVersion, Status, NamespacePrefix FROM ${type}${where}`;
         const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
         
         const res = await fetch(url);
