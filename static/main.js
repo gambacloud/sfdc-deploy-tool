@@ -486,9 +486,16 @@ btnReset.addEventListener('click', () => {
 async function compareZips(src, tgt) {
     changedFiles = [];
     const srcFiles = Object.keys(src.files).filter(f => !src.files[f].dir && f !== 'unpackaged/package.xml');
+    const totalFiles = srcFiles.length;
 
-    for (const fileName of srcFiles) {
+    for (let i = 0; i < totalFiles; i++) {
+        const fileName = srcFiles[i];
         const srcContent = await src.file(fileName).async("string");
+
+        if (i % 5 === 0 || i === totalFiles - 1) {
+            const pct = 10 + Math.floor((i / totalFiles) * 50); // Map 0-100% of comparison to 10-60% of total
+            setProgress(retrieveProgress, retrieveMsg, pct, `Comparing files (${i + 1}/${totalFiles})...`, false);
+        }
 
         if (!tgt.file(fileName)) {
             changedFiles.push({ name: fileName, status: 'New', selected: false, srcContent, tgtContent: '', lastModifiedByName: '-', lastModifiedDate: '-' });
@@ -544,7 +551,13 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
         );
     }
 
-    const resultsArrays = await Promise.all(fetchPromises);
+    const resultsArrays = await Promise.all(fetchPromises.map((p, idx) => 
+        p.then(res => {
+            const pct = 60 + Math.floor(((idx + 1) / fetchPromises.length) * 20); // Map to 60-80%
+            setProgress(retrieveProgress, retrieveMsg, pct, `Fetching metadata info (batch ${idx + 1}/${fetchPromises.length})...`, false);
+            return res;
+        })
+    ));
     resultsArrays.forEach(arr => metadataResults.push(...arr));
 
     const lookup = {};
@@ -942,8 +955,39 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
         }
 
         const status = statusNode.textContent;
+        
+        // Granular Progress Calculation
+        let progressPct = null;
+        let progressMsg = "";
+        
+        const deployedNode = xmlDoc.getElementsByTagName("numberComponentsDeployed")[0] || xmlDoc.getElementsByTagName("met:numberComponentsDeployed")[0];
+        const totalNode = xmlDoc.getElementsByTagName("numberComponentsTotal")[0] || xmlDoc.getElementsByTagName("met:numberComponentsTotal")[0];
+        const testsDeployedNode = xmlDoc.getElementsByTagName("numberTestsCompleted")[0] || xmlDoc.getElementsByTagName("met:numberTestsCompleted")[0];
+        const testsTotalNode = xmlDoc.getElementsByTagName("numberTestsTotal")[0] || xmlDoc.getElementsByTagName("met:numberTestsTotal")[0];
+
+        if (deployedNode && totalNode) {
+            const deployed = parseInt(deployedNode.textContent) || 0;
+            const total = parseInt(totalNode.textContent) || 0;
+            const testsDone = parseInt(testsDeployedNode?.textContent) || 0;
+            const testsTotal = parseInt(testsTotalNode?.textContent) || 0;
+
+            if (total > 0) {
+                // components are roughly 0-70% of wait time, tests 70-100%
+                const compRatio = deployed / total;
+                const testRatio = testsTotal > 0 ? (testsDone / testsTotal) : 0;
+                
+                if (testsTotal > 0) {
+                    progressPct = Math.floor(50 + (compRatio * 20) + (testRatio * 30));
+                    progressMsg = `Components: ${deployed}/${total}, Tests: ${testsDone}/${testsTotal}`;
+                } else {
+                    progressPct = Math.floor(50 + (compRatio * 50));
+                    progressMsg = `Components: ${deployed}/${total}`;
+                }
+            }
+        }
+
         const actionStr = isCheckOnly ? "Validation" : "Deploy";
-        setProgress(deployProgress, deployMsg, null, `${actionStr} Status: ${status}...`, false);
+        setProgress(deployProgress, deployMsg, progressPct, `${actionStr} Status: ${status}. ${progressMsg}`, false);
 
         if (status === 'Succeeded' || status === 'Failed' || status === 'Canceled') {
             done = true;
