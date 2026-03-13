@@ -184,24 +184,141 @@ function extractZipFromSoap(xmlString) {
     throw new Error("Could not find ZIP file string in response.");
 }
 
-async function fetchMetadata(instanceUrl, sessionId, xmlPayload) {
-    const res = await fetch('/api/proxy/retrieve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            instanceUrl,
-            sessionId,
-            unpackagedXml: xmlPayload
-        })
-    });
-    if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Proxy Error: ${err}`);
+const fastCompareToggle = document.getElementById('fastCompareToggle');
+
+async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare = false) {
+    let finalZip = new JSZip();
+    let typesToRetrieve = [];
+
+    // 1. Parse XML payload to know what to fetch
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlPayload, "text/xml");
+    const typesNodes = xmlDoc.getElementsByTagName("types");
+    
+    for (const typeNode of typesNodes) {
+        const nameNode = typeNode.getElementsByTagName("name")[0];
+        if (nameNode) typesToRetrieve.push(nameNode.textContent);
     }
-    const soapStr = await res.text();
-    const base64 = extractZipFromSoap(soapStr);
-    const jszip = new JSZip();
-    return await jszip.loadAsync(base64, { base64: true });
+
+    // 2. Identify Fast Types vs Slow Types
+    const supportedFastTypes = ['ApexClass', 'ApexTrigger', 'ApexComponent', 'ApexPage'];
+    const fastTypes = [];
+    const slowTypes = [];
+
+    if (useFastCompare) {
+        typesToRetrieve.forEach(t => {
+            if (supportedFastTypes.includes(t)) fastTypes.push(t);
+            else slowTypes.push(t);
+        });
+    } else {
+        slowTypes.push(...typesToRetrieve);
+    }
+
+    // 3. Prepare Concurrent Promises
+    const promises = [];
+
+    // 3a. Standard Metadata API Retrieve for Slow Types
+    if (slowTypes.length > 0) {
+        // Build a restricted package.xml just for the slow types
+        let restrictedXml = `<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
+        slowTypes.forEach(type => {
+            restrictedXml += `  <types>\n    <members>*</members>\n    <name>${type}</name>\n  </types>\n`;
+        });
+        restrictedXml += `  <version>58.0</version>\n</Package>`;
+
+        const mdPromise = fetch('/api/proxy/retrieve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instanceUrl, sessionId, unpackagedXml: restrictedXml })
+        }).then(async res => {
+            if (!res.ok) throw new Error(`Proxy Error: ${await res.text()}`);
+            const soapStr = await res.text();
+            const base64 = extractZipFromSoap(soapStr);
+            const mdZip = new JSZip();
+            await mdZip.loadAsync(base64, { base64: true });
+            
+            // Merge into finalZip
+            mdZip.forEach((relativePath, file) => {
+                finalZip.file(relativePath, file.async('arraybuffer'));
+            });
+        });
+        promises.push(mdPromise);
+    }
+
+    // 3b. REST API Fast Fetch for Code
+    if (fastTypes.length > 0) {
+        const restPromise = fetchCodeViaRestApi(instanceUrl, sessionId, fastTypes).then(fastZip => {
+            // Merge into finalZip
+            fastZip.forEach((relativePath, file) => {
+                finalZip.file(relativePath, file.async('arraybuffer'));
+            });
+        });
+        promises.push(restPromise);
+    }
+
+    // 4. Wait for Both Streams
+    await Promise.all(promises);
+
+    return finalZip;
+}
+
+async function fetchCodeViaRestApi(instanceUrl, sessionId, types) {
+    const zip = new JSZip();
+    
+    const fetchType = async (type) => {
+        let folder = "";
+        let ext = "";
+        
+        if (type === 'ApexClass') { folder = "classes"; ext = ".cls"; }
+        else if (type === 'ApexTrigger') { folder = "triggers"; ext = ".trigger"; }
+        else if (type === 'ApexPage') { folder = "pages"; ext = ".page"; }
+        else if (type === 'ApexComponent') { folder = "components"; ext = ".component"; }
+
+        // Query code
+        const q = `SELECT Name, Body, Markup, ApiVersion, Status, NamespacePrefix FROM ${type}`;
+        const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
+        
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`REST API Error for ${type}: ${await res.text()}`);
+        
+        const data = await res.json();
+        
+        // Assemble Virtual Files
+        for (const record of (data.records || [])) {
+            // Respect namespaces
+            const prefix = record.NamespacePrefix ? `${record.NamespacePrefix}__` : '';
+            const fileName = `${prefix}${record.Name}${ext}`;
+            const compPath = `unpackaged/${folder}/${fileName}`;
+            const metaPath = `unpackaged/${folder}/${fileName}-meta.xml`;
+
+            // The code body is either in Body (Class/Trigger) or Markup (Page/Component)
+            const bodyContent = record.Body || record.Markup || '';
+            zip.file(compPath, bodyContent);
+
+            // Generate virtual meta.xml
+            let metaStatus = record.Status ? `<status>${record.Status}</status>\n` : '';
+            let metaApi = record.ApiVersion ? `<apiVersion>${record.ApiVersion}</apiVersion>\n` : '';
+            
+            // Generate valid meta xml envelope based on type
+            let metaXml = `<?xml version="1.0" encoding="UTF-8"?>\n<${type} xmlns="http://soap.sforce.com/2006/04/metadata">\n`;
+            if (type === 'ApexPage' || type === 'ApexComponent') {
+                metaXml += `    <label>${record.Name}</label>\n`;
+            }
+            if (metaApi) metaXml += `    ${metaApi}`;
+            if (metaStatus) metaXml += `    ${metaStatus}`;
+            metaXml += `</${type}>`;
+
+            zip.file(metaPath, metaXml);
+        }
+    };
+
+    const typePromises = types.map(t => fetchType(t));
+    await Promise.all(typePromises);
+    
+    // Virtual package.xml
+    zip.file('unpackaged/package.xml', '<?xml version="1.0" encoding="UTF-8"?><Package><version>58.0</version></Package>');
+    
+    return zip;
 }
 
 function setProgress(bar, msgElem, percent, msg, isError = false) {
@@ -236,10 +353,11 @@ btnRetrieve.addEventListener('click', async () => {
         setProgress(retrieveProgress, retrieveMsg, 10, 'Initiating Retrieve for Source and Target orgs...', false);
 
         const xml = packageXml.value;
+        const useFastCompare = fastCompareToggle ? fastCompareToggle.checked : false;
 
         const [src, tgt] = await Promise.all([
-            fetchMetadata(srcInstance.value, srcSession.value, xml).catch(e => { throw new Error(`Source Org Error: ${e.message}`); }),
-            fetchMetadata(tgtInstance.value, tgtSession.value, xml).catch(e => { throw new Error(`Target Org Error: ${e.message}`); })
+            fetchMetadata(srcInstance.value, srcSession.value, xml, useFastCompare).catch(e => { throw new Error(`Source Org Error: ${e.message}`); }),
+            fetchMetadata(tgtInstance.value, tgtSession.value, xml, useFastCompare).catch(e => { throw new Error(`Target Org Error: ${e.message}`); })
         ]);
 
         srcZip = src;

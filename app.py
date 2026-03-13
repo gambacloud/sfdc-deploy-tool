@@ -318,7 +318,30 @@ async def list_metadata(req: ListMetadataRequest):
         return {"result": results}
 
 
-# --- REST API Proxy (Tooling API) ---
+# --- REST API Proxy (Standard & Tooling) ---
+
+@app.get("/api/proxy/query")
+async def standard_query(instanceUrl: str, sessionId: str, q: str):
+    """Executes a SOQL query against the Salesforce Standard REST API"""
+    if not instanceUrl or not sessionId or not q:
+        raise HTTPException(status_code=400, detail="Missing instanceUrl, sessionId, or query 'q'")
+        
+    instance_url = instanceUrl.rstrip('/')
+    instance_url = instance_url if instance_url.startswith("http") else f"https://{instance_url}"
+    url = f"{instance_url}/services/data/v58.0/query"
+    headers = {
+        "Authorization": f"Bearer {sessionId}",
+        "Accept": "application/json"
+    }
+    
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+        res = await client.get(url, params={"q": q}, headers=headers)
+        
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+            
+        return res.json()
+
 
 @app.get("/api/proxy/tooling/query")
 async def tooling_query(instanceUrl: str, sessionId: str, q: str):
