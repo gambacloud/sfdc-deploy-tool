@@ -642,9 +642,53 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
     const typesArray = Array.from(typesNeeded);
     const metadataResults = [];
     
+    // --- SOQL Optimized Path ---
+    const soqlSupportedTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomMetadata'];
+    const codes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent'];
+    const fastMetadataTypes = typesArray.filter(t => soqlSupportedTypes.includes(t));
+    const slowMetadataTypes = typesArray.filter(t => !soqlSupportedTypes.includes(t));
+
     const fetchPromises = [];
-    for (let i = 0; i < typesArray.length; i += 3) {
-        const batch = typesArray.slice(i, i + 3);
+
+    // 1. Fetch Code info via SOQL
+    codes.filter(t => fastMetadataTypes.includes(t)).forEach(type => {
+        const q = `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ${type}`;
+        const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
+        fetchPromises.push(fetch(url).then(async res => {
+            if (!res.ok) return [];
+            const data = await res.json();
+            return (data.records || []).map(r => ({
+                fullName: r.Name,
+                type: type,
+                lastModifiedByName: r.LastModifiedBy?.Name,
+                lastModifiedDate: r.LastModifiedDate
+            }));
+        }));
+    });
+
+    // 2. Fetch Entity info (Objects/CMDT) via SOQL
+    if (fastMetadataTypes.includes('CustomObject') || fastMetadataTypes.includes('CustomMetadata')) {
+        let where = "";
+        if (fastMetadataTypes.includes('CustomObject') && !fastMetadataTypes.includes('CustomMetadata')) where = "WHERE IsCustomMetadataDefinition = false";
+        else if (!fastMetadataTypes.includes('CustomObject') && fastMetadataTypes.includes('CustomMetadata')) where = "WHERE IsCustomMetadataDefinition = true";
+
+        const q = `SELECT QualifiedApiName, LastModifiedDate, LastModifiedBy.Name, IsCustomMetadataDefinition FROM EntityDefinition ${where}`;
+        const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
+        fetchPromises.push(fetch(url).then(async res => {
+            if (!res.ok) return [];
+            const data = await res.json();
+            return (data.records || []).map(r => ({
+                fullName: r.QualifiedApiName,
+                type: r.IsCustomMetadataDefinition ? 'CustomMetadata' : 'CustomObject',
+                lastModifiedByName: r.LastModifiedBy?.Name,
+                lastModifiedDate: r.LastModifiedDate
+            }));
+        }));
+    }
+
+    // 3. Fallback for Slow Types (listMetadata)
+    for (let i = 0; i < slowMetadataTypes.length; i += 3) {
+        const batch = slowMetadataTypes.slice(i, i + 3);
         fetchPromises.push(
             fetch('/api/proxy/listMetadata', {
                 method: 'POST',
@@ -654,28 +698,25 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
             .then(async res => {
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.result && Array.isArray(data.result)) {
-                        return data.result;
-                    }
-                } else {
-                    console.error('Failed listMetadata batch', await res.text());
+                    return data.result || [];
                 }
-                return [];
-            })
-            .catch(e => {
-                console.error('listMetadata Error', e);
                 return [];
             })
         );
     }
 
+    // 4. Wait & Merge results
     const resultsArrays = await Promise.all(fetchPromises.map((p, idx) => 
         p.then(res => {
-            const pct = 60 + Math.floor(((idx + 1) / fetchPromises.length) * 20); // Map to 60-80%
-            setProgress(retrieveProgress, retrieveMsg, pct, `Fetching metadata info (batch ${idx + 1}/${fetchPromises.length})...`, false);
+            const pct = 60 + Math.floor(((idx + 1) / fetchPromises.length) * 20);
+            setProgress(retrieveProgress, retrieveMsg, pct, `Updating metadata info...`, false);
             return res;
+        }).catch(e => {
+            console.error('Fetch error:', e);
+            return [];
         })
     ));
+    
     resultsArrays.forEach(arr => metadataResults.push(...arr));
 
     const lookup = {};
@@ -699,7 +740,6 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
             if (lookup[type] && lookup[type][fullName]) {
                 const info = lookup[type][fullName];
                 f.lastModifiedByName = info.lastModifiedByName || '-';
-                // format date
                 let dateStr = info.lastModifiedDate;
                 if (dateStr) {
                     try {
