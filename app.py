@@ -213,11 +213,6 @@ async def deploy_metadata(req: DeployRequest):
 
 
 @app.get("/api/proxy/status/{job_id}")
-async def check_deploy_status(job_id: str, instanceUrl: str, sessionId: str, apiVersion: str = "58.0"):
-    """Checks the status of an asynchronous metadata API job"""
-    status_soap = ... # ...
-    # ... Wait, actually let's just leave the chunk above untouched, it's safer to add this code higher up.
-    pass
 async def check_deploy_status(
     job_id: str, 
     instanceUrl: str = Query(...), 
