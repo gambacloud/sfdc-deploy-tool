@@ -2,17 +2,15 @@
 
 A high-performance, stateless web tool for comparing, validating, and deploying Salesforce metadata. It runs entirely in the browser using your local Salesforce CLI (`sf`) authentication, ensuring no source code or credentials are ever saved to a server.
 
-## Features
-
-- **Direct Deployment**: Deploy metadata easily between two orgs.
-- **Cherry-picking**: Selectively deploy a subset of files from the fetched package.
-- **Validation (Check-Only)**: Simulate deployments and test runs without making actual changes.
-- **Custom Testing**: Choose specific test levels (e.g., `RunLocalTests`, `RunSpecifiedTests`).
-- **Org Manager**: Automatically syncs and uses your existing local Salesforce CLI (`sf`) environments.
-- **Dependency Analyzer**: Check custom field/metadata usage and open them directly in Salesforce Setup.
-- **Advanced Filtering & Sorting**: Quickly search components, filter by deployment status (New/Modified), or show only selected items. Sort by any column.
-- **Last Modified Data**: See who last modified a component and when directly in the diff table.
-- **Quick Swap**: Instantly swap Source and Target org credentials with a single click.
+- **Fast Compare**: ⚡ Blazing fast comparisons using REST API for Apex and Visualforce.
+- **Live Deployment Terminal**: 📻 Real-time feedback with component-by-component statuses, test results, and coverage dashboards.
+- **Screenshot Proof**: 📸 Integrated capture utility for deployment outcomes (perfect for JIRA/Slack).
+- **Direct Setup Links**: 🔗 Click component names to open them directly in your Salesforce Org Setup.
+- **Cherry-picking**: Selectively deploy or validate a subset of files from any comparison.
+- **Org Manager**: Automatically syncs with your local Salesforce CLI (`sf`) environments.
+- **Dependency Analyzer**: Deep-dive into field/metadata usage before you deploy.
+- **Advanced Filtering**: Search, sort, and filter by status (New/Modified) or modification date.
+- **Quick Swap**: Instantly swap Source and Target orgs with a single click.
 
 ## Getting Started
 
