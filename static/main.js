@@ -299,7 +299,7 @@ document.addEventListener('alpine:init', () => {
         processedIds: new Set(), // To avoid duplicate logs
 
         reset(isCheckOnly) {
-            this.show = true;
+            this.show = false;
             this.status = 'Queued';
             this.progress = 0;
             this.jobId = 'Pending...';

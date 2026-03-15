@@ -199,8 +199,14 @@
                     <!-- Deploy Progress (inline in navbar) -->
                     <div id="deployStatus" class="hidden w-full max-w-xs">
                         <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 border border-emerald-100 dark:border-emerald-800/30">
-                            <div class="flex justify-between text-[11px] mb-1"><span id="deployMsg"
-                                    class="font-medium text-emerald-700 dark:text-emerald-300 truncate">Deploying...</span></div>
+                            <div class="flex justify-between items-center text-[11px] mb-1">
+                                <span id="deployMsg" class="font-medium text-emerald-700 dark:text-emerald-300 truncate">Deploying...</span>
+                                <button @click="$store.deploy.show = !$store.deploy.show" class="ml-2 p-0.5 hover:bg-emerald-200 dark:hover:bg-emerald-800 rounded transition-colors" title="Toggle Terminal">
+                                    <svg class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                </button>
+                            </div>
                             <div class="w-full bg-emerald-200 dark:bg-emerald-800 rounded-full h-1.5 overflow-hidden">
                                 <div id="deployProgress"
                                     class="bg-emerald-600 h-1.5 rounded-full transition-all duration-300 ease-out"
@@ -706,7 +712,7 @@
     <!-- Deployment Result / Terminal Modal -->
     <div id="deployResultModal" class="fixed inset-0 z-[70] overflow-y-auto" x-data x-show="$store.deploy.show" x-cloak>
         <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
-            <div class="fixed inset-0 bg-gray-900/90 backdrop-blur-md transition-opacity" @click="if ($store.deploy.status !== 'InProgress') $store.deploy.show = false"></div>
+            <div class="fixed inset-0 bg-gray-900/90 backdrop-blur-md transition-opacity" @click="$store.deploy.show = false"></div>
             <div class="inline-block align-bottom bg-gray-900 rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle w-full max-w-4xl border border-gray-700 flex flex-col h-[85vh] text-gray-300">
                 
                 <!-- Terminal Header -->
@@ -726,7 +732,7 @@
                             <svg class="animate-spin h-4 w-4 text-salesforce" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             <span class="text-xs font-mono text-gray-500">POLLING...</span>
                         </div>
-                        <button @click="$store.deploy.show = false" x-show="$store.deploy.status !== 'InProgress'" class="text-gray-500 hover:text-white transition-colors">
+                        <button @click="$store.deploy.show = false" class="text-gray-500 hover:text-white transition-colors">
                             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
                         </button>
                     </div>
