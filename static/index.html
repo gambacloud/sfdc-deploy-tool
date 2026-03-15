@@ -53,7 +53,7 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background-color: rgba(156, 163, 175, 0.5);
+            background-color: rgba(156, 163, 175, 0.8);
             border-radius: 4px;
         }
 
@@ -373,7 +373,7 @@
                             <span x-text="selectedTypes.length + ' types'" class="text-salesforce"></span>
                         </label>
                         <div
-                            class="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                            class="flex-1 min-h-0 overflow-y-auto bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
                             <div class="flex flex-wrap gap-2">
                                 <template x-for="type in selectedTypes" :key="type">
                                     <div class="flex flex-col gap-1.5 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-2 shadow-sm">
@@ -506,7 +506,7 @@
             </div>
 
             <!-- Table Section -->
-            <div id="diffSection" class="hidden flex-1 flex-col overflow-hidden fade-in relative">
+            <div id="diffSection" class="hidden flex-1 min-h-0 flex-col overflow-hidden fade-in relative">
                 <!-- Table Toolbar -->
                 <div
                     class="flex-none px-6 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center z-10">
@@ -537,7 +537,7 @@
                 </div>
 
                 <!-- Table Container -->
-                <div class="flex-1 overflow-auto bg-white dark:bg-gray-900 relative">
+                <div class="flex-1 min-h-0 overflow-auto bg-white dark:bg-gray-900 relative">
                     <table class="w-full text-left border-collapse whitespace-nowrap">
                         <thead
                             class="sticky top-0 bg-gray-50 dark:bg-gray-800/95 backdrop-blur z-10 border-b border-gray-200 dark:border-gray-700">
