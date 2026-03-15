@@ -241,12 +241,11 @@ async def check_deploy_status(
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    # Stream the raw SOAP XML response back directly to bypass memory parsing limits!
-    # The Frontend Vanilla JS parse it.
+    # Stream the decompressed SOAP XML response back to the frontend.
     client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
     async def stream_response():
         async with client.stream("POST", url, content=status_soap, headers=get_soap_headers()) as r:
-            async for chunk in r.aiter_raw():
+            async for chunk in r.aiter_bytes():
                 yield chunk
     return StreamingResponse(stream_response(), media_type="text/xml")
 
