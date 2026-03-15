@@ -1160,7 +1160,7 @@ function showDiff(idx) {
     }, 10);
 }
 
-closeModalBtn.onclick = closeDiff;
+if (closeModalBtn) closeModalBtn.onclick = closeDiff;
 
 // Deploy Flow
 btnValidate.addEventListener('click', () => executeDeploy(true));

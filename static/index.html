@@ -681,6 +681,26 @@
         </div>
     </div>
 
+    <!-- Diff Viewer Modal -->
+    <div id="diffModal" class="hidden fixed inset-0 z-[60] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
+            <div class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm transition-opacity" aria-hidden="true" id="diffModalBg"></div>
+            <div class="inline-block align-bottom bg-white dark:bg-gray-900 rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle w-full max-w-[95vw] border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh]">
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800 flex-none rounded-t-xl">
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white truncate pr-8" id="modalTitle">File Name</h3>
+                    <button id="closeModal" type="button" class="text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors focus:outline-none">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-black/20" id="diffViewer">
+                    <!-- diff2html content -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Deployment Result / Terminal Modal -->
     <div id="deployResultModal" class="hidden fixed inset-0 z-[70] overflow-y-auto" x-data x-show="$store.deploy.show" x-cloak>
         <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
@@ -992,9 +1012,13 @@
         });
 
         // Close modal on background click
-        document.getElementById('diffModalBg').addEventListener('click', () => {
-            document.getElementById('diffModal').classList.add('hidden');
-        });
+        const diffModalBg = document.getElementById('diffModalBg');
+        if (diffModalBg) {
+            diffModalBg.addEventListener('click', () => {
+                const diffModal = document.getElementById('diffModal');
+                if (diffModal) diffModal.classList.add('hidden');
+            });
+        }
     </script>
 </body>
 
