@@ -196,6 +196,18 @@
                             Deploy Selected
                         </button>
                     </div>
+                    <!-- Deploy Progress (inline in navbar) -->
+                    <div id="deployStatus" class="hidden w-full max-w-xs">
+                        <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 border border-emerald-100 dark:border-emerald-800/30">
+                            <div class="flex justify-between text-[11px] mb-1"><span id="deployMsg"
+                                    class="font-medium text-emerald-700 dark:text-emerald-300 truncate">Deploying...</span></div>
+                            <div class="w-full bg-emerald-200 dark:bg-emerald-800 rounded-full h-1.5 overflow-hidden">
+                                <div id="deployProgress"
+                                    class="bg-emerald-600 h-1.5 rounded-full transition-all duration-300 ease-out"
+                                    style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="flex items-center gap-1">
                     <button id="orgManagerBtn"
@@ -441,17 +453,6 @@
                         <input type="checkbox" id="fastCompareToggle" class="w-3.5 h-3.5 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer" checked>
                         ⚡ Fast Compare (Code)
                     </label>
-                </div>
-                <!-- Deploy Progress (right after action buttons) -->
-                <div id="deployStatus"
-                    class="hidden mt-3 bg-emerald-50 dark:bg-emerald-900/20 rounded p-3 border border-emerald-100 dark:border-emerald-800/30">
-                    <div class="flex justify-between text-xs mb-1.5"><span id="deployMsg"
-                            class="font-medium text-emerald-700 dark:text-emerald-300">Deploying...</span></div>
-                    <div class="w-full bg-emerald-200 dark:bg-emerald-800 rounded-full h-1.5 overflow-hidden">
-                        <div id="deployProgress"
-                            class="bg-emerald-600 h-1.5 rounded-full transition-all duration-300 ease-out"
-                            style="width: 0%"></div>
-                    </div>
                 </div>
                 <button id="btnAnalyze"
                     class="w-full hidden items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-sm transition-all disabled:opacity-50">
@@ -703,7 +704,7 @@
     </div>
 
     <!-- Deployment Result / Terminal Modal -->
-    <div id="deployResultModal" class="hidden fixed inset-0 z-[70] overflow-y-auto" x-data x-show="$store.deploy.show" x-cloak>
+    <div id="deployResultModal" class="fixed inset-0 z-[70] overflow-y-auto" x-data x-show="$store.deploy.show" x-cloak>
         <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
             <div class="fixed inset-0 bg-gray-900/90 backdrop-blur-md transition-opacity" @click="if ($store.deploy.status !== 'InProgress') $store.deploy.show = false"></div>
             <div class="inline-block align-bottom bg-gray-900 rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle w-full max-w-4xl border border-gray-700 flex flex-col h-[85vh] text-gray-300">
