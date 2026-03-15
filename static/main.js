@@ -447,7 +447,9 @@ async function fetchCodeViaRestApi(instanceUrl, sessionId, typeConfigs) {
             where = ` WHERE Name IN (${escapedNames})`;
         }
         
-        const q = `SELECT Name, Body, Markup, ApiVersion, Status, NamespacePrefix FROM ${type}${where}`;
+        // ApexClass/Trigger use 'Body', ApexPage/Component use 'Markup'
+        const contentField = (type === 'ApexPage' || type === 'ApexComponent') ? 'Markup' : 'Body';
+        const q = `SELECT Name, ${contentField}, ApiVersion, Status, NamespacePrefix FROM ${type}${where}`;
         const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
         
         const res = await fetch(url);
