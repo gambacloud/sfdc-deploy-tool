@@ -102,9 +102,10 @@ document.addEventListener('alpine:init', () => {
         all: [],
         
         get filtered() {
+            if (!this.all || !Array.isArray(this.all)) return [];
             if (!this.searchQuery) return this.all;
             const q = this.searchQuery.toLowerCase();
-            return this.all.filter(m => m.toLowerCase().includes(q));
+            return this.all.filter(m => m && typeof m === 'string' && m.toLowerCase().includes(q));
         },
 
         async open(type, instanceUrl, sessionId) {
@@ -130,7 +131,8 @@ document.addEventListener('alpine:init', () => {
                     const res = await fetch(url);
                     if (!res.ok) throw new Error(await res.text());
                     const data = await res.json();
-                    this.all = (data.records || []).map(r => r.Name || r.QualifiedApiName).sort();
+                    const rawMembers = (data.records || []).map(r => r.Name || r.QualifiedApiName).filter(Boolean);
+                    this.all = [...new Set(rawMembers)].sort();
                 } else {
                     // Fallback to listMetadata
                     const res = await fetch('/api/proxy/listMetadata', {
@@ -140,7 +142,8 @@ document.addEventListener('alpine:init', () => {
                     });
                     if (!res.ok) throw new Error(await res.text());
                     const data = await res.json();
-                    this.all = (data.result || []).map(r => r.fullName).sort();
+                    const rawMembers = (data.result || []).map(r => r.fullName).filter(Boolean);
+                    this.all = [...new Set(rawMembers)].sort();
                 }
             } catch (e) {
                 console.error("Error loading members:", e);
@@ -151,12 +154,10 @@ document.addEventListener('alpine:init', () => {
         },
 
         isSelected(member) {
-            const manifest = Alpine.data('manifestBuilder')(); // This won't work easily, store needs to update the component
-            // We'll handle this by letting the component own the selections
             return false;
         },
-        toggle(member) { /* placeholder, logic handled in component */ },
-        clear() { /* placeholder */ },
+        toggle(member) { },
+        clear() { },
         selectedCount() { return 0; }
     });
 
