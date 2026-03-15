@@ -91,6 +91,32 @@ const FOLDER_TO_TYPE_MAP = {
     'reports': 'Report', 'dashboards': 'Dashboard'
 };
 
+// Salesforce Setup URL builder
+function getSfSetupUrl(instanceUrl, typeName, componentName) {
+    if (!instanceUrl) return null;
+    const base = instanceUrl.replace(/\/$/, '');
+    // Strip file extension for the component name
+    const name = componentName.replace(/\.(cls|trigger|page|component|js|css|html|xml|cmp|design|svg|app)(-meta\.xml)?$/i, '');
+    const searchBase = `${base}/lightning/setup`;
+    const typeMap = {
+        'ApexClass': `${searchBase}/ApexClasses/home`,
+        'ApexTrigger': `${searchBase}/ApexTriggers/home`,
+        'ApexPage': `${searchBase}/ApexPages/home`,
+        'ApexComponent': `${searchBase}/ApexComponents/home`,
+        'LightningComponentBundle': `${searchBase}/LightningComponentBundles/home`,
+        'AuraDefinitionBundle': `${searchBase}/LightningComponentBundles/home`,
+        'Flow': `${searchBase}/Flows/home`,
+        'CustomObject': `${searchBase}/ObjectManager/${name}/Details/view`,
+        'Layout': `${searchBase}/ObjectManager/home`,
+        'PermissionSet': `${searchBase}/PermSets/home`,
+        'Profile': `${searchBase}/Profiles/home`,
+        'ValidationRule': `${searchBase}/ObjectManager/home`,
+        'CustomLabels': `${searchBase}/ExternalStrings/home`,
+        'CustomMetadata': `${searchBase}/CustomMetadata/home`,
+    };
+    return typeMap[typeName] || null;
+}
+
 // --- Alpine.js Component for Manifest Builder ---
 // --- Alpine.js Store for Member Selection ---
 document.addEventListener('alpine:init', () => {
@@ -1056,6 +1082,16 @@ function renderDiffTable() {
 
     diffCountBadge.textContent = `${filteredFiles.length} files`;
 
+    // Show Source → Target direction
+    const dirLabel = document.getElementById('orgDirectionLabel');
+    if (dirLabel) {
+        try {
+            const srcHost = srcInstance.value ? new URL(srcInstance.value).hostname.split('.')[0] : 'Source';
+            const tgtHost = tgtInstance.value ? new URL(tgtInstance.value).hostname.split('.')[0] : 'Target';
+            dirLabel.textContent = `${srcHost} → ${tgtHost}`;
+        } catch(e) { dirLabel.textContent = ''; }
+    }
+
     filteredFiles.forEach((f, idx) => {
         const globalIdx = changedFiles.indexOf(f); // Keep reference to original index for showDiff
         const tr = document.createElement('tr');
@@ -1094,7 +1130,15 @@ function renderDiffTable() {
 
         const tdName = document.createElement('td');
         tdName.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-salesforce transition-colors';
-        tdName.innerHTML = `<div class="flex items-center gap-2">${compName} <svg class="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></div>`;
+        
+        // Build Setup link for Source org
+        const setupUrl = getSfSetupUrl(srcInstance.value, typeName, compName);
+        const linkIcon = `<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`;
+        if (setupUrl) {
+            tdName.innerHTML = `<div class="flex items-center gap-2">${compName} <a href="${setupUrl}" target="_blank" rel="noopener" class="opacity-0 group-hover:opacity-100 transition-opacity text-salesforce hover:text-blue-700" title="Open in Source Org Setup" onclick="event.stopPropagation()">${linkIcon}</a></div>`;
+        } else {
+            tdName.innerHTML = `<div class="flex items-center gap-2">${compName}</div>`;
+        }
         
         const tdModBy = document.createElement('td');
         tdModBy.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400 truncate max-w-[12rem]';
@@ -1136,11 +1180,17 @@ function closeDiff() {
 
 function showDiff(idx) {
     const f = changedFiles[idx];
-    modalTitle.textContent = f.name.replace('unpackaged/', '');
+    const cleanName = f.name.replace('unpackaged/', '');
+    
+    // Build header with org labels
+    const srcLabel = srcInstance.value ? new URL(srcInstance.value).hostname.split('.')[0] : 'Source';
+    const tgtLabel = tgtInstance.value ? new URL(tgtInstance.value).hostname.split('.')[0] : 'Target';
+    modalTitle.innerHTML = `<span class="text-lg font-bold">${cleanName}</span>
+        <span class="ml-3 text-xs font-mono text-gray-400">⬅ ${tgtLabel} &nbsp;|&nbsp; ➡ ${srcLabel}</span>`;
 
-    // Clarify labels - Target = Current Org State, Source = Incoming Changes
+    // Clarify labels - Left = Target (current), Right = Source (incoming)
     const patch = Diff.createTwoFilesPatch(
-        "Target: " + f.name, "Source: " + f.name,
+        `⬅ TARGET (${tgtLabel})`, `➡ SOURCE (${srcLabel})`,
         f.tgtContent, f.srcContent
     );
 
