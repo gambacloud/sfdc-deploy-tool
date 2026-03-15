@@ -57,8 +57,8 @@ const selectedCountText = document.getElementById('selectedCountText');
 const showSelectedOnly = document.getElementById('showSelectedOnly');
 const statusFilter = document.getElementById('statusFilter');
 
-const srcOrgAliasLabel = document.getElementById('srcOrgAliasLabel');
 const tgtOrgAliasLabel = document.getElementById('tgtOrgAliasLabel');
+const fastCompareToggle = document.getElementById('fastCompareToggle');
 
 // State
 let srcZip = null;
@@ -336,8 +336,6 @@ function extractZipFromSoap(xmlString) {
     throw new Error("Could not find ZIP file string in response.");
 }
 
-const fastCompareToggle = document.getElementById('fastCompareToggle');
-
 async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare = false) {
     let finalZip = new JSZip();
     let typesToRetrieve = []; // Array of objects { name, members }
@@ -485,7 +483,7 @@ async function fetchCodeViaRestApi(instanceUrl, sessionId, typeConfigs) {
         }
     };
 
-    const typePromises = types.map(t => fetchType(t));
+    const typePromises = typeConfigs.map(t => fetchType(t));
     await Promise.all(typePromises);
     
     // Virtual package.xml
