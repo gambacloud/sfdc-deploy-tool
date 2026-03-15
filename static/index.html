@@ -442,6 +442,17 @@
                         ⚡ Fast Compare (Code)
                     </label>
                 </div>
+                <!-- Deploy Progress (right after action buttons) -->
+                <div id="deployStatus"
+                    class="hidden mt-3 bg-emerald-50 dark:bg-emerald-900/20 rounded p-3 border border-emerald-100 dark:border-emerald-800/30">
+                    <div class="flex justify-between text-xs mb-1.5"><span id="deployMsg"
+                            class="font-medium text-emerald-700 dark:text-emerald-300">Deploying...</span></div>
+                    <div class="w-full bg-emerald-200 dark:bg-emerald-800 rounded-full h-1.5 overflow-hidden">
+                        <div id="deployProgress"
+                            class="bg-emerald-600 h-1.5 rounded-full transition-all duration-300 ease-out"
+                            style="width: 0%"></div>
+                    </div>
+                </div>
                 <button id="btnAnalyze"
                     class="w-full hidden items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-sm transition-all disabled:opacity-50">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -469,17 +480,6 @@
                     <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
                         <div id="retrieveProgress"
                             class="bg-salesforce h-1.5 rounded-full transition-all duration-300 ease-out"
-                            style="width: 0%"></div>
-                    </div>
-                </div>
-                <!-- Deploy Progress -->
-                <div id="deployStatus"
-                    class="hidden mt-4 bg-emerald-50 dark:bg-emerald-900/20 rounded p-3 border border-emerald-100 dark:border-emerald-800/30">
-                    <div class="flex justify-between text-xs mb-1.5"><span id="deployMsg"
-                            class="font-medium text-emerald-700 dark:text-emerald-300">Deploying...</span></div>
-                    <div class="w-full bg-emerald-200 dark:bg-emerald-800 rounded-full h-1.5 overflow-hidden">
-                        <div id="deployProgress"
-                            class="bg-emerald-600 h-1.5 rounded-full transition-all duration-300 ease-out"
                             style="width: 0%"></div>
                     </div>
                 </div>
