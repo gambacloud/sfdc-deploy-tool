@@ -716,24 +716,26 @@ async function compareZips(src, tgt) {
     const srcFiles = Object.keys(src.files).filter(f => !src.files[f].dir && f !== 'unpackaged/package.xml');
     const totalFiles = srcFiles.length;
 
-    for (let i = 0; i < totalFiles; i++) {
-        const fileName = srcFiles[i];
+    let completed = 0;
+    const results = await Promise.all(srcFiles.map(async (fileName) => {
         const srcContent = await src.file(fileName).async("string");
 
-        if (i % 5 === 0 || i === totalFiles - 1) {
-            const pct = 10 + Math.floor((i / totalFiles) * 50); // Map 0-100% of comparison to 10-60% of total
-            setProgress(retrieveProgress, retrieveMsg, pct, `Comparing files (${i + 1}/${totalFiles})...`, false);
+        if (++completed % 5 === 0 || completed === totalFiles) {
+            const pct = 10 + Math.floor((completed / totalFiles) * 50);
+            setProgress(retrieveProgress, retrieveMsg, pct, `Comparing files (${completed}/${totalFiles})...`, false);
         }
 
         if (!tgt.file(fileName)) {
-            changedFiles.push({ name: fileName, status: 'New', selected: false, srcContent, tgtContent: '', lastModifiedByName: '-', lastModifiedDate: '-' });
-        } else {
-            const tgtContent = await tgt.file(fileName).async("string");
-            if (srcContent !== tgtContent) {
-                changedFiles.push({ name: fileName, status: 'Modified', selected: false, srcContent, tgtContent, lastModifiedByName: '-', lastModifiedDate: '-' });
-            }
+            return { name: fileName, status: 'New', selected: false, srcContent, tgtContent: '', lastModifiedByName: '-', lastModifiedDate: '-' };
         }
-    }
+        const tgtContent = await tgt.file(fileName).async("string");
+        if (srcContent !== tgtContent) {
+            return { name: fileName, status: 'Modified', selected: false, srcContent, tgtContent, lastModifiedByName: '-', lastModifiedDate: '-' };
+        }
+        return null;
+    }));
+
+    changedFiles = results.filter(r => r !== null);
 }
 
 async function fetchLastModifiedData(instanceUrl, sessionId) {
@@ -760,9 +762,16 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
 
     const fetchPromises = [];
 
-    // 1. Fetch Code info via SOQL
+    // 1. Fetch Code info via SOQL (only changed names)
     codes.filter(t => fastMetadataTypes.includes(t)).forEach(type => {
-        const q = `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ${type}`;
+        const folderName = Object.keys(FOLDER_TO_TYPE_MAP).find(k => FOLDER_TO_TYPE_MAP[k] === type);
+        const changedNames = changedFiles
+            .filter(f => f.name.replace('unpackaged/', '').split('/')[0] === folderName)
+            .map(f => f.name.replace('unpackaged/', '').split('/').slice(1).join('/').split('.')[0]);
+        const whereClause = changedNames.length > 0
+            ? ` WHERE Name IN (${changedNames.map(n => `'${n}'`).join(',')})`
+            : '';
+        const q = `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ${type}${whereClause}`;
         const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
         fetchPromises.push(fetch(url).then(async res => {
             if (!res.ok) return [];
