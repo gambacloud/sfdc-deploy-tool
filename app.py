@@ -135,7 +135,7 @@ async def retrieve_metadata(req: RetrieveRequest):
                 
                 if "status>InProgress" in full_response or "status>Pending" in full_response:
                     print(f"[RETRIEVE] Job {job_id} is still in progress...")
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(1)
                     continue
                 
                 # If done (or failed), yield the entire buffered response back to the client cleanly.

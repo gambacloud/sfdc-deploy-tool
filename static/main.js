@@ -118,75 +118,7 @@ function getSfSetupUrl(instanceUrl, typeName, componentName) {
 }
 
 // --- Alpine.js Component for Manifest Builder ---
-// --- Alpine.js Store for Member Selection ---
 document.addEventListener('alpine:init', () => {
-    Alpine.store('members', {
-        show: false,
-        loading: false,
-        type: '',
-        searchQuery: '',
-        all: [],
-        
-        get filtered() {
-            if (!this.all || !Array.isArray(this.all)) return [];
-            if (!this.searchQuery) return this.all;
-            const q = this.searchQuery.toLowerCase();
-            return this.all.filter(m => m && typeof m === 'string' && m.toLowerCase().includes(q));
-        },
-
-        async open(type, instanceUrl, sessionId) {
-            this.type = type;
-            this.show = true;
-            this.loading = true;
-            this.all = [];
-            this.searchQuery = '';
-
-            try {
-                // Use the same logic as fetchMetadata to decide if we use SOQL or listMetadata
-                const soqlSupportedTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomMetadata'];
-                if (soqlSupportedTypes.includes(type)) {
-                    let q = "";
-                    if (type === 'CustomObject' || type === 'CustomMetadata') {
-                        const isCmdt = (type === 'CustomMetadata');
-                        q = `SELECT QualifiedApiName FROM EntityDefinition WHERE IsCustomMetadataDefinition = ${isCmdt}`;
-                    } else {
-                        q = `SELECT Name FROM ${type}`;
-                    }
-                    
-                    const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
-                    const res = await fetch(url);
-                    if (!res.ok) throw new Error(await res.text());
-                    const data = await res.json();
-                    const rawMembers = (data.records || []).map(r => r.Name || r.QualifiedApiName).filter(Boolean);
-                    this.all = [...new Set(rawMembers)].sort();
-                } else {
-                    // Fallback to listMetadata
-                    const res = await fetch('/api/proxy/listMetadata', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ instanceUrl, sessionId, types: [type] })
-                    });
-                    if (!res.ok) throw new Error(await res.text());
-                    const data = await res.json();
-                    const rawMembers = (data.result || []).map(r => r.fullName).filter(Boolean);
-                    this.all = [...new Set(rawMembers)].sort();
-                }
-            } catch (e) {
-                console.error("Error loading members:", e);
-                alert("Failed to load members: " + e.message);
-            } finally {
-                this.loading = false;
-            }
-        },
-
-        isSelected(member) {
-            return false;
-        },
-        toggle(member) { },
-        clear() { },
-        selectedCount() { return 0; }
-    });
-
     Alpine.data('manifestBuilder', () => ({
         searchQuery: '',
         memberSelections: {}, // type -> Array of names
@@ -260,28 +192,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        browseMembers(type) {
-            if (!srcInstance.value || !srcSession.value) return alert("Please provide Source Org credentials first.");
-            
-            // Link store to this instance
-            Alpine.store('members').isSelected = (member) => {
-                return (this.memberSelections[type] || []).includes(member);
-            };
-            Alpine.store('members').toggle = (member) => {
-                if (!this.memberSelections[type]) this.memberSelections[type] = [];
-                const idx = this.memberSelections[type].indexOf(member);
-                if (idx > -1) this.memberSelections[type].splice(idx, 1);
-                else this.memberSelections[type].push(member);
-            };
-            Alpine.store('members').clear = () => {
-                this.memberSelections[type] = [];
-            };
-            Alpine.store('members').selectedCount = () => {
-                return (this.memberSelections[type] || []).length;
-            };
-
-            Alpine.store('members').open(type, srcInstance.value, srcSession.value);
-        }
     }));
 
     Alpine.store('deploy', {
@@ -843,7 +753,7 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
     const metadataResults = [];
     
     // --- SOQL Optimized Path ---
-    const soqlSupportedTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomMetadata'];
+    const soqlSupportedTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject'];
     const codes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent'];
     const fastMetadataTypes = typesArray.filter(t => soqlSupportedTypes.includes(t));
     const slowMetadataTypes = typesArray.filter(t => !soqlSupportedTypes.includes(t));
@@ -866,20 +776,16 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
         }));
     });
 
-    // 2. Fetch Entity info (Objects/CMDT) via SOQL
-    if (fastMetadataTypes.includes('CustomObject') || fastMetadataTypes.includes('CustomMetadata')) {
-        let where = "";
-        if (fastMetadataTypes.includes('CustomObject') && !fastMetadataTypes.includes('CustomMetadata')) where = "WHERE IsCustomMetadataDefinition = false";
-        else if (!fastMetadataTypes.includes('CustomObject') && fastMetadataTypes.includes('CustomMetadata')) where = "WHERE IsCustomMetadataDefinition = true";
-
-        const q = `SELECT QualifiedApiName, LastModifiedDate, LastModifiedBy.Name, IsCustomMetadataDefinition FROM EntityDefinition ${where}`;
+    // 2. Fetch Entity info (CustomObject) via SOQL
+    if (fastMetadataTypes.includes('CustomObject')) {
+        const q = `SELECT QualifiedApiName, LastModifiedDate, LastModifiedBy.Name FROM EntityDefinition WHERE IsCustomMetadataDefinition = false`;
         const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
         fetchPromises.push(fetch(url).then(async res => {
             if (!res.ok) return [];
             const data = await res.json();
             return (data.records || []).map(r => ({
                 fullName: r.QualifiedApiName,
-                type: r.IsCustomMetadataDefinition ? 'CustomMetadata' : 'CustomObject',
+                type: 'CustomObject',
                 lastModifiedByName: r.LastModifiedBy?.Name,
                 lastModifiedDate: r.LastModifiedDate
             }));
@@ -935,6 +841,8 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
             const noExtTypes = ['ApexClass', 'ApexTrigger', 'ApexPage', 'ApexComponent', 'CustomObject', 'CustomLabels'];
             if (noExtTypes.includes(type)) {
                 fullName = fullName.split('.')[0];
+            } else if (type === 'CustomMetadata') {
+                fullName = fullName.replace(/\.md$/, '');
             }
 
             if (lookup[type] && lookup[type][fullName]) {
