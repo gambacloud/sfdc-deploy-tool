@@ -5,21 +5,14 @@ import xml.etree.ElementTree as ET
 from fastapi import FastAPI, Request, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
-import asyncio
-import urllib.parse
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-import asyncio
 import urllib.parse
 from typing import List, Optional
 import subprocess
 import json
 import sys
-import os
-import httpx
+from cachetools import TTLCache
 
 if getattr(sys, 'frozen', False):
     # Running in a PyInstaller bundle
@@ -31,6 +24,10 @@ else:
 static_dir = os.path.join(base_dir, "static")
 
 app = FastAPI()
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# In-memory TTL cache for listMetadata (per org+types, 5-minute TTL)
+_list_metadata_cache: TTLCache = TTLCache(maxsize=200, ttl=300)
 
 # Mount frontend files
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -129,9 +126,10 @@ async def retrieve_metadata(req: RetrieveRequest):
                 # However, httpx doesn't let us easily 'peek' and then continue yielding.
                 # Since the zip is base64 encoded text inside the SOAP XML, accumulating the text in memory
                 # in Python is perfectly fine! The limits are high enough.
-                full_response = ""
+                chunks = []
                 async for chunk in resp.aiter_text():
-                    full_response += chunk
+                    chunks.append(chunk)
+                full_response = "".join(chunks)
                 
                 if "status>InProgress" in full_response or "status>Pending" in full_response:
                     print(f"[RETRIEVE] Job {job_id} is still in progress...")
@@ -262,6 +260,11 @@ async def list_metadata(req: ListMetadataRequest):
     Accepts a list of metadata types (up to 3) and queries the listMetadata API.
     Returns a list of FileProperties.
     """
+    cache_key = (req.instanceUrl, tuple(sorted(req.types)))
+    if cache_key in _list_metadata_cache:
+        print(f"[LIST_METADATA] Cache hit for {req.types}")
+        return _list_metadata_cache[cache_key]
+
     instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
     url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
     
@@ -309,7 +312,9 @@ async def list_metadata(req: ListMetadataRequest):
                     "lastModifiedByName": res.findtext('met:lastModifiedByName', default="", namespaces=namespaces),
                     "lastModifiedDate": res.findtext('met:lastModifiedDate', default="", namespaces=namespaces)
                 })
-        return {"result": results}
+        result = {"result": results}
+        _list_metadata_cache[cache_key] = result
+        return result
 
 
 # --- REST API Proxy (Standard & Tooling) ---
