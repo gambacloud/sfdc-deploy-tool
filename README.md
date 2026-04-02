@@ -1,40 +1,57 @@
 # Salesforce Deployer Pro
 
-A high-performance, stateless web tool for comparing, validating, and deploying Salesforce metadata. It runs entirely in the browser using your local Salesforce CLI (`sf`) authentication, ensuring no source code or credentials are ever saved to a server.
+Compare, validate, and deploy Salesforce metadata between orgs. No code leaves your machine.
 
-- **Fast Compare**: ⚡ Blazing fast comparisons using REST API for Apex and Visualforce.
-- **Live Deployment Terminal**: 📻 Real-time feedback with component-by-component statuses, test results, and coverage dashboards.
-- **Screenshot Proof**: 📸 Integrated capture utility for deployment outcomes (perfect for JIRA/Slack).
-- **Direct Setup Links**: 🔗 Click component names to open them directly in your Salesforce Org Setup.
-- **Cherry-picking**: Selectively deploy or validate a subset of files from any comparison.
-- **Org Manager**: Automatically syncs with your local Salesforce CLI (`sf`) environments.
-- **Dependency Analyzer**: Deep-dive into field/metadata usage before you deploy.
-- **Advanced Filtering**: Search, sort, and filter by status (New/Modified) or modification date.
-- **Quick Swap**: Instantly swap Source and Target orgs with a single click.
+## ✨ Highlights
+
+- ⚡ **Fast Compare** — Instant side-by-side diff between any two orgs
+- 📻 **Live Deploy Terminal** — Real-time progress with test results and coverage
+- 🧪 **Test Class Picker** — Auto-detects test classes, one-click selection
+- 🕐 **Audit Trail** — See who changed what, per component, per org
+- 📜 **Deployment History** — Browse past deployments and re-view diffs
+- 🔍 **Dependency Analyzer** — Check what depends on a component before you touch it
 
 ## Getting Started
 
-You can run this tool in three different ways:
-
 ### 1. Download Executable (Easiest)
-Download the standalone executable and double-click to run.
-1. Go to the [Actions tab](../../actions) in this repository.
-2. Click on the latest successful `Build Executables` workflow run.
-3. Download the artifact for your OS (Windows, Mac, or Linux) at the bottom of the page.
+1. Go to the [Actions tab](../../actions) → latest `Build Executables` run
+2. Download for your OS (Windows, Mac, Linux)
 
-### 2. Run Locally from Source
-Run the Python FastAPI server locally using the included scripts.
-1. Clone the repository: `git clone https://github.com/gambacloud/sfdc-deploy-tool.git`
-2. Run `run.bat` (Windows) or `./run.sh` (Mac/Linux) to automatically install requirements and start the server.
-3. Open `http://localhost:8000` in your browser.
+### 2. Run from Source
+```bash
+git clone https://github.com/gambacloud/sfdc-deploy-tool.git
+cd sfdc-deploy-tool
+run.bat          # Windows
+./run.sh         # Mac/Linux
+```
+Open `http://localhost:8000`
 
 ### 3. Deploy to Heroku
-Deploy your own instance to the cloud (Stateless proxy).
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
-Or via Heroku CLI:
-```bash
-heroku create sfdc-deployer
-git push heroku main
-```
 
-> **Security Note**: This tool proxies Salesforce session IDs. If deploying to a cloud server like Heroku, ensure HTTPS is enabled and target instance URLs/session IDs are never logged. When running locally or via executable, communication stays on your machine.
+> **Security**: Session IDs are proxied but never stored. When running locally, everything stays on your machine.
+
+---
+
+## All Features
+
+| Feature | What it does |
+|---------|-------------|
+| Org Compare | Side-by-side metadata diff between any two orgs |
+| Fast Compare ⚡ | Skips Metadata API for Apex — much faster |
+| Cherry-Pick Deploy | Select individual files to validate or deploy |
+| Live Terminal | Component-by-component deploy progress |
+| Coverage Dashboard | Per-class Apex test coverage during deployment |
+| Test Class Picker 🧪 | Pick test classes from a searchable list |
+| Audit Trail 🕐 | Per-component change history (Source + Target) |
+| Deployment History | Re-view past diffs |
+| Ignore Whitespace | Toggle to ignore trailing spaces in diffs |
+| Managed Package Filter | Auto-hides managed package components |
+| Dependency Analyzer | Find what references a component |
+| Org Manager | Syncs with your local `sf` CLI environments |
+| Setup Links | Click a component → opens in Salesforce Setup |
+| Screenshot Proof 📸 | One-click capture to clipboard |
+| Quick Swap | Swap Source ↔ Target instantly |
+| Filtering & Sorting | Search, sort columns, filter by status |
+| Manifest Builder | Visual metadata type picker with presets |
+| Dark Mode | Full dark theme |
