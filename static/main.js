@@ -68,6 +68,7 @@ const fastCompareToggle = document.getElementById('fastCompareToggle');
 let srcZip = null;
 let tgtZip = null;
 let changedFiles = [];
+let testClassNames = [];
 
 // --- IndexedDB History Storage ---
 const HISTORY_DB_NAME = 'sfdc-deploy-history';
@@ -694,6 +695,7 @@ btnRetrieve.addEventListener('click', async () => {
 
         setProgress(retrieveProgress, retrieveMsg, 60, 'Metadata retrieved. Comparing files...', false);
         await compareZips(src, tgt);
+        await detectTestClasses(src);
 
         setProgress(retrieveProgress, retrieveMsg, 80, 'Fetching Last Modified data...', false);
         await fetchLastModifiedData(srcInstance.value, srcSession.value);
@@ -969,6 +971,19 @@ async function compareZips(src, tgt) {
     }));
 
     changedFiles = results.filter(r => r !== null);
+}
+
+async function detectTestClasses(zip) {
+    testClassNames = [];
+    const clsFiles = Object.keys(zip.files).filter(f => f.endsWith('.cls') && !f.endsWith('-meta.xml'));
+    const contents = await Promise.all(clsFiles.map(f => zip.file(f).async('string').then(content => ({ f, content }))));
+    for (const { f, content } of contents) {
+        if (/@isTest/i.test(content) || /\btestMethod\b/i.test(content)) {
+            const name = f.split('/').pop().replace('.cls', '');
+            testClassNames.push(name);
+        }
+    }
+    testClassNames.sort();
 }
 
 async function fetchLastModifiedData(instanceUrl, sessionId) {
@@ -1900,4 +1915,70 @@ btnAuthorizeOrg.addEventListener('click', async () => {
         btnAuthorizeOrg.disabled = false;
         btnAuthorizeOrg.innerHTML = origBtnHtml;
     }
+});
+
+// --- Test Class Picker ---
+let testPickerSelected = new Set();
+
+function openTestPicker() {
+    if (testClassNames.length === 0) {
+        alert('No test classes detected. Run Compare first.');
+        return;
+    }
+    testPickerSelected = new Set();
+    // Pre-populate from current input
+    testClassesInput.value.split(',').map(s => s.trim()).filter(Boolean).forEach(t => testPickerSelected.add(t));
+    // Auto-add selected diff files that are test classes
+    changedFiles.filter(f => f.selected && f.name.includes('/classes/')).forEach(f => {
+        const name = f.name.split('/').pop().replace('.cls', '').replace('-meta.xml', '');
+        if (testClassNames.includes(name)) testPickerSelected.add(name);
+    });
+    const search = document.getElementById('testPickerSearch');
+    search.value = '';
+    renderTestPickerList();
+    document.getElementById('testPickerModal').classList.remove('hidden');
+}
+
+function renderTestPickerList(filter) {
+    const q = (filter || '').toLowerCase();
+    const filtered = q ? testClassNames.filter(n => n.toLowerCase().includes(q)) : testClassNames;
+    const list = document.getElementById('testPickerList');
+    list.innerHTML = filtered.length === 0
+        ? '<p class="text-center text-xs text-gray-400 py-4">No matching test classes</p>'
+        : filtered.map(name => `
+            <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded cursor-pointer text-sm">
+                <input type="checkbox" value="${name}" ${testPickerSelected.has(name) ? 'checked' : ''}
+                       class="w-4 h-4 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer"
+                       onchange="toggleTestPick('${name}', this.checked)">
+                <span class="text-gray-800 dark:text-gray-200">${name}</span>
+            </label>`).join('');
+    updateTestPickerBadge();
+}
+
+window.toggleTestPick = function(name, checked) {
+    if (checked) testPickerSelected.add(name); else testPickerSelected.delete(name);
+    updateTestPickerBadge();
+};
+
+function updateTestPickerBadge() {
+    const el = document.getElementById('testPickerCount');
+    if (el) el.textContent = `${testPickerSelected.size} selected`;
+}
+
+function confirmTestPicker() {
+    const selected = Array.from(testPickerSelected);
+    testClassesInput.value = selected.join(',');
+    if (selected.length > 0) testLevelInput.value = 'RunSpecifiedTests';
+    document.getElementById('testPickerModal').classList.add('hidden');
+}
+
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'btnPickTests') openTestPicker();
+    if (e.target.id === 'btnConfirmTests') confirmTestPicker();
+    if (e.target.id === 'testPickerModalBg' || e.target.id === 'btnCloseTestPicker') {
+        document.getElementById('testPickerModal').classList.add('hidden');
+    }
+});
+document.addEventListener('input', (e) => {
+    if (e.target.id === 'testPickerSearch') renderTestPickerList(e.target.value);
 });

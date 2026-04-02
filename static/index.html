@@ -171,6 +171,7 @@
                         <input type="text" id="testClasses" placeholder="Specific Test Classes (comma separated)"
                             class="flex-1 bg-transparent border-none focus:ring-0 text-sm px-3 dark:placeholder-gray-400">
                         <div class="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+                        <button id="btnPickTests" type="button" class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded transition-colors whitespace-nowrap" title="Pick Test Classes from Source Org">🧪 Tests</button>
                         <select id="testLevel"
                             class="bg-transparent border-none focus:ring-0 text-sm text-gray-700 dark:text-gray-300 cursor-pointer pl-3 pr-8 py-1">
                             <option value="NoTestRun">No Test Run</option>
@@ -1096,6 +1097,42 @@
             });
         }
     </script>
+
+    <!-- Test Class Picker Modal -->
+    <div id="testPickerModal" class="hidden fixed inset-0 z-[60] overflow-y-auto" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm" id="testPickerModalBg"></div>
+            <div class="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-200 dark:border-gray-700 flex flex-col max-h-[70vh]">
+                <!-- Header -->
+                <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-t-xl flex-none">
+                    <div class="flex items-center gap-2">
+                        <span class="text-base">🧪</span>
+                        <h3 class="text-sm font-bold text-gray-900 dark:text-white">Pick Test Classes</h3>
+                        <span id="testPickerCount" class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">0 selected</span>
+                    </div>
+                    <button id="btnCloseTestPicker" class="text-gray-400 hover:text-gray-900 dark:hover:text-white p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <!-- Search -->
+                <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800 flex-none">
+                    <div class="relative">
+                        <svg class="w-4 h-4 absolute left-2.5 top-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input id="testPickerSearch" type="text" placeholder="Search test classes..."
+                               class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs pl-8 pr-3 py-1.5 focus:ring-1 focus:ring-salesforce outline-none dark:placeholder-gray-500">
+                    </div>
+                </div>
+                <!-- List -->
+                <div id="testPickerList" class="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0">
+                    <!-- JS rendered -->
+                </div>
+                <!-- Footer -->
+                <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end bg-gray-50 dark:bg-gray-800 rounded-b-xl flex-none">
+                    <button id="btnConfirmTests" class="px-4 py-1.5 bg-salesforce hover:bg-blue-600 text-white rounded-md text-sm font-medium transition-colors shadow-sm">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>
