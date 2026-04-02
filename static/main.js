@@ -91,6 +91,17 @@ const FOLDER_TO_TYPE_MAP = {
     'reports': 'Report', 'dashboards': 'Dashboard'
 };
 
+// Returns true if a component name has a managed package namespace prefix (e.g. "myns__MyClass")
+// Distinguishes from standard API suffixes like __c, __mdt, __e which are NOT namespace prefixes
+function isManagedPackageComponent(componentName) {
+    const withoutExt = componentName.split('.')[0];
+    const match = withoutExt.match(/^([a-zA-Z][a-zA-Z0-9]{0,14})__(.+)/);
+    if (!match) return false;
+    // If the part after __ is a standard Salesforce suffix, it's not a namespace prefix
+    const standardSuffixes = /^(c|mdt|e|b|x|ka|kav|share|history|feed|changeEvent)(__.*)?$/i;
+    return !standardSuffixes.test(match[2]);
+}
+
 // Salesforce Setup URL builder
 function getSfSetupUrl(instanceUrl, typeName, componentName) {
     if (!instanceUrl) return null;
@@ -713,7 +724,11 @@ btnReset.addEventListener('click', () => {
 
 async function compareZips(src, tgt) {
     changedFiles = [];
-    const srcFiles = Object.keys(src.files).filter(f => !src.files[f].dir && f !== 'unpackaged/package.xml');
+    const srcFiles = Object.keys(src.files).filter(f => {
+        if (src.files[f].dir || f === 'unpackaged/package.xml') return false;
+        const parts = f.replace('unpackaged/', '').split('/');
+        return parts.length < 2 || !isManagedPackageComponent(parts[1]);
+    });
     const totalFiles = srcFiles.length;
 
     let completed = 0;
@@ -768,10 +783,10 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
         const changedNames = changedFiles
             .filter(f => f.name.replace('unpackaged/', '').split('/')[0] === folderName)
             .map(f => f.name.replace('unpackaged/', '').split('/').slice(1).join('/').split('.')[0]);
-        const whereClause = changedNames.length > 0
-            ? ` WHERE Name IN (${changedNames.map(n => `'${n}'`).join(',')})`
+        const nameFilter = changedNames.length > 0
+            ? `Name IN (${changedNames.map(n => `'${n}'`).join(',')}) AND `
             : '';
-        const q = `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ${type}${whereClause}`;
+        const q = `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ${type} WHERE ${nameFilter}NamespacePrefix = null`;
         const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
         fetchPromises.push(fetch(url).then(async res => {
             if (!res.ok) return [];
@@ -787,7 +802,7 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
 
     // 2. Fetch Entity info (CustomObject) via SOQL
     if (fastMetadataTypes.includes('CustomObject')) {
-        const q = `SELECT QualifiedApiName, LastModifiedDate, LastModifiedBy.Name FROM EntityDefinition WHERE IsCustomMetadataDefinition = false`;
+        const q = `SELECT QualifiedApiName, LastModifiedDate, LastModifiedBy.Name FROM EntityDefinition WHERE IsCustomMetadataDefinition = false AND NamespacePrefix = null`;
         const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
         fetchPromises.push(fetch(url).then(async res => {
             if (!res.ok) return [];
@@ -813,7 +828,7 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
             .then(async res => {
                 if (res.ok) {
                     const data = await res.json();
-                    return data.result || [];
+                    return (data.result || []).filter(r => !r.namespacePrefix);
                 }
                 return [];
             })
