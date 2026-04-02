@@ -150,6 +150,23 @@ async function clearAllHistory() {
     });
 }
 
+async function updateHistoryTitle(id, title) {
+    const db = await openHistoryDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('history', 'readwrite');
+        const store = tx.objectStore('history');
+        const req = store.get(id);
+        req.onsuccess = () => {
+            const entry = req.result;
+            if (!entry) return resolve();
+            entry.title = title || '';
+            store.put(entry);
+        };
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
 // Presets Config
 const presets = {
     code: ['ApexClass', 'ApexComponent', 'ApexPage', 'ApexTrigger', 'AuraDefinitionBundle', 'LightningComponentBundle'],
@@ -346,6 +363,7 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('historyPanel', () => ({
         entries: [],
         selected: null,
+        editingTitleId: null,
 
         async init() {
             this.entries = await loadHistory();
@@ -356,8 +374,24 @@ document.addEventListener('alpine:init', () => {
 
         async select(entry) {
             this.selected = entry;
-            // Notify detail view
             window.dispatchEvent(new CustomEvent('history-select', { detail: entry }));
+        },
+
+        startEditTitle(entry) {
+            this.editingTitleId = entry.id;
+            this.$nextTick(() => {
+                const input = document.querySelector(`[data-title-input="${entry.id}"]`);
+                if (input) { input.focus(); input.select(); }
+            });
+        },
+
+        async saveTitle(entry, title) {
+            if (this.editingTitleId !== entry.id) return;
+            this.editingTitleId = null;
+            title = title.trim();
+            if (title === (entry.title || '')) return;
+            entry.title = title;
+            await updateHistoryTitle(entry.id, title);
         },
 
         async clearAll() {
