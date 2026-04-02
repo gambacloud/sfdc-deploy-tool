@@ -1174,6 +1174,10 @@ document.querySelectorAll('th[data-sort]').forEach(th => {
 
 function renderDiffTable() {
     diffList.innerHTML = '';
+
+    // Close any open audit popover
+    const prevPop = document.getElementById('auditPopover');
+    if (prevPop) prevPop.remove();
     
     updateSelectedCount();
 
@@ -1314,12 +1318,26 @@ function renderDiffTable() {
         tdModDate.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400';
         tdModDate.textContent = f.lastModifiedDate || '-';
 
+        const tdAudit = document.createElement('td');
+        tdAudit.className = 'px-3 py-4 whitespace-nowrap text-right';
+        const auditBtnClass = 'p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors';
+        const clockSvg = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+        tdAudit.innerHTML = `<div class="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="${auditBtnClass}" title="Source Audit Trail" onclick="event.stopPropagation(); showAuditTrail('${compName.split('.')[0]}', 'source', this)">
+                <span class="flex items-center gap-0.5"><span class="text-[8px] font-bold text-blue-500">S</span>${clockSvg}</span>
+            </button>
+            <button class="${auditBtnClass}" title="Target Audit Trail" onclick="event.stopPropagation(); showAuditTrail('${compName.split('.')[0]}', 'target', this)">
+                <span class="flex items-center gap-0.5"><span class="text-[8px] font-bold text-emerald-500">T</span>${clockSvg}</span>
+            </button>
+        </div>`;
+
         tr.appendChild(tdCheck);
         tr.appendChild(tdStatus);
         tr.appendChild(tdType);
         tr.appendChild(tdName);
         tr.appendChild(tdModBy);
         tr.appendChild(tdModDate);
+        tr.appendChild(tdAudit);
 
         diffList.appendChild(tr);
     });
@@ -1982,3 +2000,89 @@ document.addEventListener('click', (e) => {
 document.addEventListener('input', (e) => {
     if (e.target.id === 'testPickerSearch') renderTestPickerList(e.target.value);
 });
+
+// --- Audit Trail Popover ---
+window.showAuditTrail = async function(compName, orgSide, btnEl) {
+    // Remove existing popover
+    const prev = document.getElementById('auditPopover');
+    if (prev) prev.remove();
+
+    const instanceUrl = orgSide === 'source' ? srcInstance.value : tgtInstance.value;
+    const sessionId = orgSide === 'source' ? srcSession.value : tgtSession.value;
+    if (!instanceUrl || !sessionId) {
+        alert(`No ${orgSide} org credentials.`);
+        return;
+    }
+
+    // Create popover anchored near the button
+    const pop = document.createElement('div');
+    pop.id = 'auditPopover';
+    pop.className = 'fixed z-[100] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl w-96 max-h-80 flex flex-col text-sm';
+
+    // Position near button
+    const rect = btnEl.getBoundingClientRect();
+    pop.style.top = `${rect.bottom + 6}px`;
+    pop.style.right = `${window.innerWidth - rect.right}px`;
+
+    const orgLabel = orgSide === 'source' ? 'Source' : 'Target';
+    const badgeColor = orgSide === 'source' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+
+    pop.innerHTML = `
+        <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center flex-none">
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-gray-800 dark:text-gray-200">🕐 ${compName}</span>
+                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeColor}">${orgLabel}</span>
+            </div>
+            <button onclick="document.getElementById('auditPopover').remove()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-3" id="auditPopContent">
+            <div class="flex justify-center py-6">
+                <svg class="animate-spin h-5 w-5 text-salesforce" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            </div>
+        </div>`;
+
+    document.body.appendChild(pop);
+
+    // Close on outside click
+    const closeHandler = (e) => {
+        if (!pop.contains(e.target) && e.target !== btnEl) {
+            pop.remove();
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 0);
+
+    // Query SetupAuditTrail
+    try {
+        const q = `SELECT Action, CreatedBy.Name, CreatedDate, Display, Section FROM SetupAuditTrail WHERE Display LIKE '%${compName}%' ORDER BY CreatedDate DESC LIMIT 25`;
+        const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const records = data.records || [];
+        const content = document.getElementById('auditPopContent');
+        if (!content) return;
+
+        if (records.length === 0) {
+            content.innerHTML = '<p class="text-center text-xs text-gray-400 py-4">No audit trail found (last 180 days)</p>';
+            return;
+        }
+
+        content.innerHTML = `<div class="space-y-2">${records.map(r => {
+            const date = new Date(r.CreatedDate).toLocaleString();
+            const user = r.CreatedBy?.Name || 'Unknown';
+            return `<div class="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 border border-gray-100 dark:border-gray-600">
+                <div class="flex justify-between items-start mb-0.5">
+                    <span class="text-[11px] font-medium text-gray-800 dark:text-gray-200">${user}</span>
+                    <span class="text-[10px] text-gray-400 whitespace-nowrap ml-2">${date}</span>
+                </div>
+                <p class="text-[11px] text-gray-500 dark:text-gray-400">${r.Display || r.Action || '-'}</p>
+            </div>`;
+        }).join('')}</div>`;
+    } catch (e) {
+        const content = document.getElementById('auditPopContent');
+        if (content) content.innerHTML = `<p class="text-center text-xs text-red-400 py-4">${e.message}</p>`;
+    }
+};
