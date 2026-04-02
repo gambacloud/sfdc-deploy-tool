@@ -27,6 +27,10 @@ const selectAll = document.getElementById('selectAll');
 // Health Check DOM Elements
 const tabDeploy = document.getElementById('tabDeploy');
 const tabHealth = document.getElementById('tabHealth');
+const tabHistory = document.getElementById('tabHistory');
+const historyContainer = document.getElementById('historyContainer');
+const historyDetail = document.getElementById('historyDetail');
+const historyEmptyState = document.getElementById('historyEmptyState');
 const targetOrgContainer = document.getElementById('targetOrgContainer');
 const deployScopeContainer = document.getElementById('deployScopeContainer');
 const healthCheckContainer = document.getElementById('healthCheckContainer');
@@ -64,6 +68,87 @@ const fastCompareToggle = document.getElementById('fastCompareToggle');
 let srcZip = null;
 let tgtZip = null;
 let changedFiles = [];
+
+// --- IndexedDB History Storage ---
+const HISTORY_DB_NAME = 'sfdc-deploy-history';
+const HISTORY_DB_VERSION = 1;
+const HISTORY_MAX = 50;
+
+function openHistoryDB() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
+        req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('history')) {
+                const store = db.createObjectStore('history', { keyPath: 'id' });
+                store.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+            if (!db.objectStoreNames.contains('historyFiles')) {
+                db.createObjectStore('historyFiles', { keyPath: 'historyId' });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function loadHistory() {
+    try {
+        const db = await openHistoryDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('history', 'readonly');
+            const store = tx.objectStore('history');
+            const req = store.index('timestamp').getAll();
+            req.onsuccess = () => resolve(req.result.reverse()); // newest first
+            req.onerror = () => reject(req.error);
+        });
+    } catch { return []; }
+}
+
+async function saveHistoryEntry(entry, files) {
+    const db = await openHistoryDB();
+    const tx = db.transaction(['history', 'historyFiles'], 'readwrite');
+    tx.objectStore('history').put(entry);
+    tx.objectStore('historyFiles').put({ historyId: entry.id, files });
+
+    // Enforce max entries
+    const allReq = tx.objectStore('history').index('timestamp').getAll();
+    allReq.onsuccess = () => {
+        const all = allReq.result;
+        if (all.length > HISTORY_MAX) {
+            const toRemove = all.slice(0, all.length - HISTORY_MAX);
+            toRemove.forEach(old => {
+                tx.objectStore('history').delete(old.id);
+                tx.objectStore('historyFiles').delete(old.id);
+            });
+        }
+    };
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function getHistoryFiles(historyId) {
+    const db = await openHistoryDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('historyFiles', 'readonly');
+        const req = tx.objectStore('historyFiles').get(historyId);
+        req.onsuccess = () => resolve(req.result?.files || []);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function clearAllHistory() {
+    const db = await openHistoryDB();
+    const tx = db.transaction(['history', 'historyFiles'], 'readwrite');
+    tx.objectStore('history').clear();
+    tx.objectStore('historyFiles').clear();
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+    });
+}
 
 // Presets Config
 const presets = {
@@ -217,10 +302,12 @@ document.addEventListener('alpine:init', () => {
         errors: 0,
         coverage: 0,
         classCoverage: [],
+        startTime: null,
         processedIds: new Set(), // To avoid duplicate logs
 
         reset(isCheckOnly) {
-            this.show = false;
+            this.show = true;
+            this.startTime = Date.now();
             this.status = 'Queued';
             this.progress = 0;
             this.jobId = 'Pending...';
@@ -254,6 +341,93 @@ document.addEventListener('alpine:init', () => {
             }, 10);
         }
     });
+
+    // History Panel (sidebar list)
+    Alpine.data('historyPanel', () => ({
+        entries: [],
+        selected: null,
+
+        async init() {
+            this.entries = await loadHistory();
+            window.addEventListener('history-updated', async () => {
+                this.entries = await loadHistory();
+            });
+        },
+
+        async select(entry) {
+            this.selected = entry;
+            // Notify detail view
+            window.dispatchEvent(new CustomEvent('history-select', { detail: entry }));
+        },
+
+        async clearAll() {
+            if (!confirm('Clear all deployment history?')) return;
+            await clearAllHistory();
+            this.entries = [];
+            this.selected = null;
+            window.dispatchEvent(new CustomEvent('history-select', { detail: null }));
+        }
+    }));
+
+    // History Detail (main content)
+    Alpine.data('historyDetail', () => ({
+        entry: null,
+        files: [],
+
+        init() {
+            window.addEventListener('history-select', async (e) => {
+                this.entry = e.detail;
+                if (this.entry) {
+                    this.files = await getHistoryFiles(this.entry.id);
+                    historyDetail.classList.remove('hidden');
+                    historyEmptyState.classList.add('hidden');
+                } else {
+                    this.files = [];
+                    historyDetail.classList.add('hidden');
+                    historyEmptyState.classList.remove('hidden');
+                }
+            });
+        },
+
+        formatDuration(ms) {
+            if (!ms) return '';
+            const s = Math.floor(ms / 1000);
+            return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+        },
+
+        showHistoryDiff(file) {
+            const cleanName = file.name.replace('unpackaged/', '');
+            const srcLabel = this.entry?.sourceOrg ? new URL(this.entry.sourceOrg).hostname.split('.')[0] : 'Source';
+            const tgtLabel = this.entry?.targetOrg ? new URL(this.entry.targetOrg).hostname.split('.')[0] : 'Target';
+
+            modalTitle.innerHTML = `<span class="text-lg font-bold">${cleanName}</span>
+                <span class="ml-3 text-xs font-mono text-gray-400">\u2B05 ${tgtLabel} &nbsp;|&nbsp; \u27A1 ${srcLabel}</span>`;
+
+            const ignoreWs = document.getElementById('ignoreWhitespace')?.checked;
+            let srcText = file.srcContent;
+            let tgtText = file.tgtContent;
+            if (ignoreWs) {
+                const normalize = s => s.split('\n').map(l => l.trimEnd()).join('\n');
+                srcText = normalize(srcText);
+                tgtText = normalize(tgtText);
+            }
+
+            const patch = Diff.createTwoFilesPatch(
+                `\u2B05 TARGET (${tgtLabel})`, `\u27A1 SOURCE (${srcLabel})`,
+                tgtText, srcText
+            );
+            const currentIsDark = document.documentElement.classList.contains('dark');
+            diffViewer.innerHTML = Diff2Html.html(patch, {
+                drawFileList: false, matching: 'lines',
+                outputFormat: 'side-by-side', theme: currentIsDark ? 'dark' : 'light'
+            });
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.querySelector('.transform')?.classList.add('scale-100', 'opacity-100');
+                modal.querySelector('.transform')?.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        }
+    }));
 });
 // ------------------------------------------------
 // Utils
@@ -525,54 +699,64 @@ function setAppMode(mode) {
     const activeTabClasses = ['bg-white', 'text-gray-900', 'dark:bg-gray-600', 'dark:text-white', 'shadow-sm'];
     const inactiveTabClasses = ['text-gray-500', 'hover:text-gray-700', 'dark:text-gray-400', 'dark:hover:text-gray-200', 'bg-transparent'];
 
+    // Reset all tabs to inactive
+    [tabDeploy, tabHealth, tabHistory].forEach(tab => {
+        tab.classList.remove(...activeTabClasses);
+        tab.classList.add(...inactiveTabClasses);
+    });
+
+    // Hide all content areas
+    targetOrgContainer.classList.add('hidden');
+    deployScopeContainer.classList.add('hidden');
+    healthCheckContainer.classList.add('hidden');
+    historyContainer.classList.add('hidden');
+    emptyState.classList.add('hidden');
+    diffSection.classList.add('hidden');
+    deployActionBar.style.display = 'none';
+    healthEmptyState.classList.add('hidden');
+    dependenciesSection.classList.add('hidden');
+    historyDetail.classList.add('hidden');
+    historyEmptyState.classList.add('hidden');
+    btnRetrieve.classList.add('hidden');
+    btnAnalyze.classList.add('hidden');
+
     if (mode === 'deploy') {
         tabDeploy.classList.add(...activeTabClasses);
         tabDeploy.classList.remove(...inactiveTabClasses);
-        tabHealth.classList.remove(...activeTabClasses);
-        tabHealth.classList.add(...inactiveTabClasses);
 
         targetOrgContainer.classList.remove('hidden');
         deployScopeContainer.classList.remove('hidden');
-        healthCheckContainer.classList.add('hidden');
         btnRetrieve.classList.remove('hidden');
-        btnAnalyze.classList.add('hidden');
 
-        healthEmptyState.classList.add('hidden');
-        dependenciesSection.classList.add('hidden');
-
-        // Restore deploy view
         if (changedFiles && changedFiles.length > 0) {
             diffSection.classList.remove('hidden');
             deployActionBar.style.display = 'flex';
         } else {
             emptyState.classList.remove('hidden');
-            deployActionBar.style.display = 'none';
         }
-    } else {
+    } else if (mode === 'health') {
         tabHealth.classList.add(...activeTabClasses);
         tabHealth.classList.remove(...inactiveTabClasses);
-        tabDeploy.classList.remove(...activeTabClasses);
-        tabDeploy.classList.add(...inactiveTabClasses);
 
-        targetOrgContainer.classList.add('hidden');
-        deployScopeContainer.classList.add('hidden');
         healthCheckContainer.classList.remove('hidden');
-        btnRetrieve.classList.add('hidden');
         btnAnalyze.classList.remove('hidden');
-
-        emptyState.classList.add('hidden');
-        diffSection.classList.add('hidden');
-        deployActionBar.style.display = 'none';
 
         if (depList.children.length > 0) {
             dependenciesSection.classList.remove('hidden');
         } else {
             healthEmptyState.classList.remove('hidden');
         }
+    } else if (mode === 'history') {
+        tabHistory.classList.add(...activeTabClasses);
+        tabHistory.classList.remove(...inactiveTabClasses);
+
+        historyContainer.classList.remove('hidden');
+        historyEmptyState.classList.remove('hidden');
     }
 }
 tabDeploy.addEventListener('click', () => setAppMode('deploy'));
 tabHealth.addEventListener('click', () => setAppMode('health'));
+tabHistory.addEventListener('click', () => setAppMode('history'));
 
 // --- Health Check Tooling API Flow ---
 btnAnalyze.addEventListener('click', async () => {
@@ -1110,40 +1294,52 @@ function closeDiff() {
     modal.classList.add('hidden');
 }
 
+let _currentDiffIdx = null; // Track current diff for re-render on whitespace toggle
+
 function showDiff(idx) {
+    _currentDiffIdx = idx;
     const f = changedFiles[idx];
+    renderDiff(f, srcInstance.value, tgtInstance.value);
+}
+
+function renderDiff(f, srcUrl, tgtUrl) {
     const cleanName = f.name.replace('unpackaged/', '');
-    
-    // Build header with org labels
-    const srcLabel = srcInstance.value ? new URL(srcInstance.value).hostname.split('.')[0] : 'Source';
-    const tgtLabel = tgtInstance.value ? new URL(tgtInstance.value).hostname.split('.')[0] : 'Target';
+    const srcLabel = srcUrl ? new URL(srcUrl).hostname.split('.')[0] : 'Source';
+    const tgtLabel = tgtUrl ? new URL(tgtUrl).hostname.split('.')[0] : 'Target';
     modalTitle.innerHTML = `<span class="text-lg font-bold">${cleanName}</span>
-        <span class="ml-3 text-xs font-mono text-gray-400">⬅ ${tgtLabel} &nbsp;|&nbsp; ➡ ${srcLabel}</span>`;
+        <span class="ml-3 text-xs font-mono text-gray-400">\u2B05 ${tgtLabel} &nbsp;|&nbsp; \u27A1 ${srcLabel}</span>`;
 
-    // Clarify labels - Left = Target (current), Right = Source (incoming)
+    const ignoreWs = document.getElementById('ignoreWhitespace')?.checked;
+    let srcText = f.srcContent;
+    let tgtText = f.tgtContent;
+    if (ignoreWs) {
+        const normalize = s => s.split('\n').map(l => l.trimEnd()).join('\n');
+        srcText = normalize(srcText);
+        tgtText = normalize(tgtText);
+    }
+
     const patch = Diff.createTwoFilesPatch(
-        `⬅ TARGET (${tgtLabel})`, `➡ SOURCE (${srcLabel})`,
-        f.tgtContent, f.srcContent
+        `\u2B05 TARGET (${tgtLabel})`, `\u27A1 SOURCE (${srcLabel})`,
+        tgtText, srcText
     );
-
-    // Check if body has dark class
     const currentIsDark = document.documentElement.classList.contains('dark');
-
-    const diffHtml = Diff2Html.html(patch, {
-        drawFileList: false,
-        matching: 'lines',
-        outputFormat: 'side-by-side',
-        theme: currentIsDark ? 'dark' : 'light'
+    diffViewer.innerHTML = Diff2Html.html(patch, {
+        drawFileList: false, matching: 'lines',
+        outputFormat: 'side-by-side', theme: currentIsDark ? 'dark' : 'light'
     });
-
-    diffViewer.innerHTML = diffHtml;
     modal.classList.remove('hidden');
-    // small timeout to allow modal to display before triggering transition
     setTimeout(() => {
-        modal.querySelector('.transform').classList.add('scale-100', 'opacity-100');
-        modal.querySelector('.transform').classList.remove('scale-95', 'opacity-0');
+        modal.querySelector('.transform')?.classList.add('scale-100', 'opacity-100');
+        modal.querySelector('.transform')?.classList.remove('scale-95', 'opacity-0');
     }, 10);
 }
+
+// Re-render diff when whitespace toggle changes
+document.getElementById('ignoreWhitespace')?.addEventListener('change', () => {
+    if (_currentDiffIdx !== null && changedFiles[_currentDiffIdx]) {
+        renderDiff(changedFiles[_currentDiffIdx], srcInstance.value, tgtInstance.value);
+    }
+});
 
 if (closeModalBtn) closeModalBtn.onclick = closeDiff;
 
@@ -1391,6 +1587,33 @@ async function pollDeployStatus(jobId, instanceUrl, sessionId, isCheckOnly) {
             done = true;
             if (status === 'Succeeded') store.addLog('success', `${actionStr} completed successfully.`);
             else store.addLog('error', `${actionStr} finished with status: ${status}`);
+
+            // Save to history
+            const selectedFiles = changedFiles.filter(f => f.selected).map(f => ({
+                name: f.name, status: f.status,
+                srcContent: f.srcContent, tgtContent: f.tgtContent,
+                lastModifiedByName: f.lastModifiedByName, lastModifiedDate: f.lastModifiedDate
+            }));
+            const historyId = jobId + '_' + Date.now();
+            saveHistoryEntry({
+                id: historyId,
+                timestamp: new Date().toISOString(),
+                type: isCheckOnly ? 'validation' : 'deployment',
+                jobId,
+                status,
+                sourceOrg: srcInstance.value,
+                targetOrg: instanceUrl,
+                duration: Date.now() - (store.startTime || Date.now()),
+                componentsDeployed: store.deployed,
+                componentsTotal: store.total,
+                errors: store.errors,
+                coverage: store.coverage,
+                componentList: store.logs.filter(l => l.type === 'success').map(l => l.msg),
+                errorDetails: store.logs.filter(l => l.type === 'error').map(l => l.msg),
+                testLevel: testLevelInput.value
+            }, selectedFiles).then(() => {
+                window.dispatchEvent(new Event('history-updated'));
+            }).catch(e => console.error('Failed to save history:', e));
         }
     }
 }
