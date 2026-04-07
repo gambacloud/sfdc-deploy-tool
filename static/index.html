@@ -759,7 +759,11 @@
             <div class="inline-block align-bottom bg-white dark:bg-gray-900 rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle w-full max-w-[95vw] border border-gray-200 dark:border-gray-700 flex flex-col h-[90vh]">
                 <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800 flex-none rounded-t-xl">
                     <h3 class="text-lg font-bold text-gray-900 dark:text-white truncate pr-8" id="modalTitle">File Name</h3>
-                    <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-3">
+                        <button id="btnShowCoverage" class="hidden px-2 py-0.5 text-[10px] font-semibold rounded bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 text-indigo-700 dark:text-indigo-300 transition-colors flex items-center gap-1 whitespace-nowrap disabled:opacity-50" onclick="showCoverage(_currentDiffFile, srcInstance.value, srcSession.value)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Coverage
+                        </button>
                         <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer whitespace-nowrap">
                             <input type="checkbox" id="ignoreWhitespace" class="w-3.5 h-3.5 text-salesforce border-gray-300 rounded focus:ring-salesforce cursor-pointer">
                             Ignore Whitespace
@@ -771,6 +775,7 @@
                         </button>
                     </div>
                 </div>
+                <div id="coverageSummaryBar" class="hidden px-6 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/50 flex-none"></div>
                 <div class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-black/20" id="diffViewer">
                     <!-- diff2html content -->
                 </div>

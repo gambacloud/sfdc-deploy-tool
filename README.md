@@ -9,6 +9,7 @@ Compare, validate, and deploy Salesforce metadata between orgs. No code leaves y
 - 🧪 **Test Class Picker** — Auto-detects test classes, one-click selection
 - 🕐 **Audit Trail** — See who changed what, per component, per org
 - 📜 **Deployment History** — Browse past deployments and re-view diffs
+- 🔬 **Coverage Viewer** — Line-level test coverage overlay with copyable report
 - 🔍 **Dependency Analyzer** — Check what depends on a component before you touch it
 
 ## Getting Started
@@ -42,6 +43,7 @@ Open `http://localhost:8000`
 | Cherry-Pick Deploy | Select individual files to validate or deploy |
 | Live Terminal | Component-by-component deploy progress |
 | Coverage Dashboard | Per-class Apex test coverage during deployment |
+| Coverage Viewer 🔬 | Line-level coverage overlay on diffs + copyable report |
 | Test Class Picker 🧪 | Pick test classes from a searchable list |
 | Audit Trail 🕐 | Per-component change history (Source + Target) |
 | Deployment History | Re-view past diffs |

@@ -431,6 +431,16 @@ document.addEventListener('alpine:init', () => {
         },
 
         showHistoryDiff(file) {
+            _currentDiffFile = file.name;
+            _currentDiffIdx = null;
+            _currentCoverage = null;
+            const coverageBar = document.getElementById('coverageSummaryBar');
+            if (coverageBar) coverageBar.classList.add('hidden');
+            const btnCov = document.getElementById('btnShowCoverage');
+            if (btnCov) {
+                if (isApexFile(file.name)) { btnCov.classList.remove('hidden'); } else { btnCov.classList.add('hidden'); }
+            }
+
             const cleanName = file.name.replace('unpackaged/', '');
             const srcLabel = this.entry?.sourceOrg ? new URL(this.entry.sourceOrg).hostname.split('.')[0] : 'Source';
             const tgtLabel = this.entry?.targetOrg ? new URL(this.entry.targetOrg).hostname.split('.')[0] : 'Target';
@@ -1359,17 +1369,31 @@ selectAll.addEventListener('change', (e) => {
 
 function closeDiff() {
     modal.classList.add('hidden');
+    _currentCoverage = null;
+    _currentDiffFile = null;
+    const coverageBar = document.getElementById('coverageSummaryBar');
+    if (coverageBar) coverageBar.classList.add('hidden');
 }
 
 let _currentDiffIdx = null; // Track current diff for re-render on whitespace toggle
+let _currentDiffFile = null; // Track current file name for coverage
 
 function showDiff(idx) {
     _currentDiffIdx = idx;
     const f = changedFiles[idx];
+    _currentDiffFile = f.name;
     renderDiff(f, srcInstance.value, tgtInstance.value);
 }
 
 function renderDiff(f, srcUrl, tgtUrl) {
+    _currentCoverage = null;
+    const coverageBar = document.getElementById('coverageSummaryBar');
+    if (coverageBar) coverageBar.classList.add('hidden');
+    const btnCov = document.getElementById('btnShowCoverage');
+    if (btnCov) {
+        if (isApexFile(f.name)) { btnCov.classList.remove('hidden'); } else { btnCov.classList.add('hidden'); }
+    }
+
     const cleanName = f.name.replace('unpackaged/', '');
     const srcLabel = srcUrl ? new URL(srcUrl).hostname.split('.')[0] : 'Source';
     const tgtLabel = tgtUrl ? new URL(tgtUrl).hostname.split('.')[0] : 'Target';
@@ -1409,6 +1433,179 @@ document.getElementById('ignoreWhitespace')?.addEventListener('change', () => {
 });
 
 if (closeModalBtn) closeModalBtn.onclick = closeDiff;
+
+// --- Test Coverage ---
+let _currentCoverage = null; // { coveredLines: [], uncoveredLines: [] }
+
+const COVERAGE_TYPES = ['ApexClass', 'ApexTrigger'];
+
+function isApexFile(fileName) {
+    return fileName && (fileName.includes('/classes/') || fileName.includes('/triggers/'));
+}
+
+function getApexClassName(fileName) {
+    const parts = fileName.replace('unpackaged/', '').split('/');
+    if (parts.length >= 2) {
+        return parts[parts.length - 1].replace('.cls', '').replace('.trigger', '').replace('-meta.xml', '');
+    }
+    return null;
+}
+
+async function fetchCoverage(className, instanceUrl, sessionId) {
+    const q = `SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered, Coverage FROM ApexCodeCoverageAggregate WHERE ApexClassOrTrigger.Name = '${className}'`;
+    const params = new URLSearchParams({ instanceUrl, sessionId, q });
+    const res = await fetch(`/api/proxy/tooling/query?${params}`);
+    if (!res.ok) throw new Error(`Coverage query failed: ${res.status}`);
+    const data = await res.json();
+    if (data.records && data.records.length > 0) {
+        const cov = data.records[0].Coverage;
+        return {
+            className,
+            coveredLines: cov.coveredLines || [],
+            uncoveredLines: cov.uncoveredLines || [],
+            numCovered: data.records[0].NumLinesCovered || 0,
+            numUncovered: data.records[0].NumLinesUncovered || 0
+        };
+    }
+    return null;
+}
+
+function applyCoverageHighlight(coverage) {
+    if (!coverage) return;
+    _currentCoverage = coverage;
+    const coveredSet = new Set(coverage.coveredLines);
+    const uncoveredSet = new Set(coverage.uncoveredLines);
+
+    // diff2html side-by-side: two .d2h-file-side-diff divs — [0]=target (left), [1]=source (right)
+    const sides = diffViewer.querySelectorAll('.d2h-file-side-diff');
+    const sourceTable = sides.length >= 2 ? sides[1] : diffViewer; // fallback to whole viewer
+
+    const rows = sourceTable.querySelectorAll('.d2h-diff-tbody tr');
+    rows.forEach(row => {
+        const lineNumCell = row.querySelector('.d2h-code-side-linenumber');
+        if (!lineNumCell) return;
+        const lineNum = parseInt(lineNumCell.textContent.trim(), 10);
+        if (isNaN(lineNum)) return;
+        const codeCell = row.querySelector('.d2h-code-side-line');
+        if (uncoveredSet.has(lineNum)) {
+            lineNumCell.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+            lineNumCell.style.borderLeft = '3px solid #ef4444';
+            if (codeCell) codeCell.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+        } else if (coveredSet.has(lineNum)) {
+            lineNumCell.style.backgroundColor = 'rgba(34, 197, 94, 0.15)';
+            lineNumCell.style.borderLeft = '3px solid #22c55e';
+            if (codeCell) codeCell.style.backgroundColor = 'rgba(34, 197, 94, 0.05)';
+        }
+    });
+
+    updateCoverageSummary(coverage);
+}
+
+function updateCoverageSummary(coverage) {
+    const bar = document.getElementById('coverageSummaryBar');
+    if (!bar) return;
+    if (!coverage) {
+        bar.classList.add('hidden');
+        return;
+    }
+    const total = coverage.numCovered + coverage.numUncovered;
+    const pct = total > 0 ? Math.round((coverage.numCovered / total) * 100) : 0;
+    const pctColor = pct >= 75 ? 'text-green-600 dark:text-green-400' : pct >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
+
+    bar.innerHTML = `
+        <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-xs text-gray-500 dark:text-gray-400">Coverage:</span>
+            <span class="text-sm font-bold ${pctColor}">${pct}%</span>
+            <span class="text-xs text-gray-400">(${coverage.numCovered}/${total} lines)</span>
+            <span class="text-xs text-green-600 dark:text-green-400">${coverage.coveredLines.length} covered</span>
+            <span class="text-xs text-red-600 dark:text-red-400">${coverage.uncoveredLines.length} uncovered</span>
+            <button onclick="copyCoverageReport()" class="ml-auto px-2 py-0.5 text-[10px] font-semibold rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors flex items-center gap-1" title="Copy uncovered lines report">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                Copy Report
+            </button>
+        </div>`;
+    bar.classList.remove('hidden');
+}
+
+function buildCoverageReport() {
+    if (!_currentCoverage || _currentCoverage.uncoveredLines.length === 0) return 'All lines are covered!';
+    const sorted = [..._currentCoverage.uncoveredLines].sort((a, b) => a - b);
+    const ranges = [];
+    let start = sorted[0], end = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] === end + 1) {
+            end = sorted[i];
+        } else {
+            ranges.push({ start, end });
+            start = sorted[i];
+            end = sorted[i];
+        }
+    }
+    ranges.push({ start, end });
+
+    const total = _currentCoverage.numCovered + _currentCoverage.numUncovered;
+    const pct = total > 0 ? Math.round((_currentCoverage.numCovered / total) * 100) : 0;
+    let report = `Coverage Report: ${_currentCoverage.className} (${pct}%)\n`;
+    report += `${'='.repeat(40)}\n`;
+    ranges.forEach((r, i) => {
+        if (r.start === r.end) {
+            report += `${i + 1}. Line ${r.start} has no test coverage\n`;
+        } else {
+            report += `${i + 1}. Lines ${r.start}-${r.end} have no test coverage\n`;
+        }
+    });
+    return report;
+}
+
+function copyCoverageReport() {
+    const report = buildCoverageReport();
+    navigator.clipboard.writeText(report).then(() => {
+        const btn = document.querySelector('#coverageSummaryBar button');
+        if (btn) {
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Copied!';
+            setTimeout(() => { btn.innerHTML = orig; }, 1500);
+        }
+    });
+}
+
+async function showCoverage(fileName, instanceUrl, sessionId) {
+    if (!isApexFile(fileName)) return;
+    const className = getApexClassName(fileName);
+    if (!className) return;
+
+    const btn = document.getElementById('btnShowCoverage');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<svg class="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Loading...';
+    }
+
+    try {
+        const coverage = await fetchCoverage(className, instanceUrl, sessionId);
+        if (coverage) {
+            applyCoverageHighlight(coverage);
+        } else {
+            updateCoverageSummary(null);
+            const bar = document.getElementById('coverageSummaryBar');
+            if (bar) {
+                bar.innerHTML = '<span class="text-xs text-gray-400">No coverage data found for this class. Run tests first.</span>';
+                bar.classList.remove('hidden');
+            }
+        }
+    } catch (e) {
+        console.error('Coverage fetch error:', e);
+        const bar = document.getElementById('coverageSummaryBar');
+        if (bar) {
+            bar.innerHTML = `<span class="text-xs text-red-500">Failed to load coverage: ${e.message}</span>`;
+            bar.classList.remove('hidden');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Coverage';
+        }
+    }
+}
 
 // Deploy Flow
 btnValidate.addEventListener('click', () => executeDeploy(true));
