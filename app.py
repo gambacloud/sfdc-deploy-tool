@@ -321,10 +321,10 @@ async def list_metadata(req: ListMetadataRequest):
 
 @app.get("/api/proxy/query")
 async def standard_query(instanceUrl: str, sessionId: str, q: str):
-    """Executes a SOQL query against the Salesforce Standard REST API"""
+    """Executes a SOQL query against the Salesforce Standard REST API, following all pagination pages."""
     if not instanceUrl or not sessionId or not q:
         raise HTTPException(status_code=400, detail="Missing instanceUrl, sessionId, or query 'q'")
-        
+
     instance_url = instanceUrl.rstrip('/')
     instance_url = instance_url if instance_url.startswith("http") else f"https://{instance_url}"
     url = f"{instance_url}/services/data/v58.0/query"
@@ -332,14 +332,27 @@ async def standard_query(instanceUrl: str, sessionId: str, q: str):
         "Authorization": f"Bearer {sessionId}",
         "Accept": "application/json"
     }
-    
+
+    all_records = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
         res = await client.get(url, params={"q": q}, headers=headers)
-        
         if res.status_code != 200:
             raise HTTPException(status_code=res.status_code, detail=res.text)
-            
-        return res.json()
+        data = res.json()
+        all_records.extend(data.get("records", []))
+
+        while not data.get("done", True) and data.get("nextRecordsUrl"):
+            next_url = f"{instance_url}{data['nextRecordsUrl']}"
+            res = await client.get(next_url, headers=headers)
+            if res.status_code != 200:
+                raise HTTPException(status_code=res.status_code, detail=res.text)
+            data = res.json()
+            all_records.extend(data.get("records", []))
+
+    data["records"] = all_records
+    data["done"] = True
+    data["totalSize"] = len(all_records)
+    return data
 
 
 @app.get("/api/proxy/tooling/query")
