@@ -113,33 +113,22 @@ async def retrieve_metadata(req: RetrieveRequest):
     </soapenv:Envelope>"""
 
     async def poll_and_stream():
-        client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
-        while True:
-            # We must use stream() right from the start. Once a successful response is pulled,
-            # Salesforce deletes the result locator on their end, so we can't fetch it a second time.
-            async with client.stream("POST", url, content=check_rx_soap, headers=get_soap_headers()) as resp:
-                # We need to buffer the response to check the status because the XML is usually small,
-                # but if it succeeds, it contains a massive base64 zip.
-                # Since we don't want to load a massive zip into memory entirely if we don't have to,
-                # let's read the first chunk to peek at the status.
-                
-                # However, httpx doesn't let us easily 'peek' and then continue yielding.
-                # Since the zip is base64 encoded text inside the SOAP XML, accumulating the text in memory
-                # in Python is perfectly fine! The limits are high enough.
-                chunks = []
-                async for chunk in resp.aiter_text():
-                    chunks.append(chunk)
-                full_response = "".join(chunks)
-                
-                if "status>InProgress" in full_response or "status>Pending" in full_response:
-                    print(f"[RETRIEVE] Job {job_id} is still in progress...")
-                    await asyncio.sleep(1)
-                    continue
-                
-                # If done (or failed), yield the entire buffered response back to the client cleanly.
-                print(f"[RETRIEVE] Job {job_id} finished polling. Streaming results to browser.")
-                yield full_response.encode('utf-8')
-                break
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+            while True:
+                async with client.stream("POST", url, content=check_rx_soap, headers=get_soap_headers()) as resp:
+                    chunks = []
+                    async for chunk in resp.aiter_text():
+                        chunks.append(chunk)
+                    full_response = "".join(chunks)
+
+                    if "status>InProgress" in full_response or "status>Pending" in full_response:
+                        print(f"[RETRIEVE] Job {job_id} is still in progress...")
+                        await asyncio.sleep(1)
+                        continue
+
+                    print(f"[RETRIEVE] Job {job_id} finished polling. Streaming results to browser.")
+                    yield full_response.encode('utf-8')
+                    break
 
     return StreamingResponse(poll_and_stream(), media_type="text/xml")
 
@@ -239,12 +228,11 @@ async def check_deploy_status(
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    # Stream the decompressed SOAP XML response back to the frontend.
-    client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
     async def stream_response():
-        async with client.stream("POST", url, content=status_soap, headers=get_soap_headers()) as r:
-            async for chunk in r.aiter_bytes():
-                yield chunk
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+            async with client.stream("POST", url, content=status_soap, headers=get_soap_headers()) as r:
+                async for chunk in r.aiter_bytes():
+                    yield chunk
     return StreamingResponse(stream_response(), media_type="text/xml")
 
 
