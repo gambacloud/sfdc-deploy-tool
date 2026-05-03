@@ -594,37 +594,52 @@ async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare 
 async function fetchCodeViaRestApi(instanceUrl, sessionId, typeConfigs) {
     const zip = new JSZip();
     
+    const CHUNK_SIZE = 100;
+
     const fetchType = async (config) => {
         const type = config.name;
         const members = config.members;
-        
+
         let folder = "";
         let ext = "";
-        
+
         if (type === 'ApexClass') { folder = "classes"; ext = ".cls"; }
         else if (type === 'ApexTrigger') { folder = "triggers"; ext = ".trigger"; }
         else if (type === 'ApexPage') { folder = "pages"; ext = ".page"; }
         else if (type === 'ApexComponent') { folder = "components"; ext = ".component"; }
 
-        // Query code
-        let where = "";
-        if (members.length > 0 && !members.includes('*')) {
-            const escapedNames = members.map(m => `'${m}'`).join(',');
-            where = ` WHERE Name IN (${escapedNames})`;
-        }
-        
         // ApexClass/Trigger use 'Body', ApexPage/Component use 'Markup'
         const contentField = (type === 'ApexPage' || type === 'ApexComponent') ? 'Markup' : 'Body';
-        const q = `SELECT Name, ${contentField}, ApiVersion, Status, NamespacePrefix FROM ${type}${where}`;
-        const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
-        
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`REST API Error for ${type}: ${await res.text()}`);
-        
-        const data = await res.json();
-        
+
+        const fetchChunk = async (chunkMembers) => {
+            let where = "";
+            if (chunkMembers.length > 0 && !chunkMembers.includes('*')) {
+                const escapedNames = chunkMembers.map(m => `'${m}'`).join(',');
+                where = ` WHERE Name IN (${escapedNames})`;
+            }
+            const q = `SELECT Name, ${contentField}, ApiVersion, Status, NamespacePrefix FROM ${type}${where}`;
+            const url = `/api/proxy/query?instanceUrl=${encodeURIComponent(instanceUrl)}&sessionId=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(q)}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`REST API Error for ${type}: ${await res.text()}`);
+            const data = await res.json();
+            return data.records || [];
+        };
+
+        let allRecords;
+        const isWildcard = members.length === 0 || members.includes('*');
+        if (isWildcard) {
+            allRecords = await fetchChunk(members);
+        } else {
+            const chunks = [];
+            for (let i = 0; i < members.length; i += CHUNK_SIZE) {
+                chunks.push(members.slice(i, i + CHUNK_SIZE));
+            }
+            const results = await Promise.all(chunks.map(chunk => fetchChunk(chunk)));
+            allRecords = results.flat();
+        }
+
         // Assemble Virtual Files
-        for (const record of (data.records || [])) {
+        for (const record of allRecords) {
             // Respect namespaces
             const prefix = record.NamespacePrefix ? `${record.NamespacePrefix}__` : '';
             const fileName = `${prefix}${record.Name}${ext}`;
@@ -1115,14 +1130,18 @@ async function fetchLastModifiedData(instanceUrl, sessionId) {
             if (lookup[type] && lookup[type][fullName]) {
                 const info = lookup[type][fullName];
                 f.lastModifiedByName = info.lastModifiedByName || '-';
-                let dateStr = info.lastModifiedDate;
-                if (dateStr) {
+                const rawDate = info.lastModifiedDate;
+                f.lastModifiedDateRaw = rawDate || '';
+                if (rawDate) {
                     try {
-                        const d = new Date(dateStr);
-                        dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                    } catch(e) {}
+                        const d = new Date(rawDate);
+                        f.lastModifiedDate = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    } catch(e) {
+                        f.lastModifiedDate = rawDate;
+                    }
+                } else {
+                    f.lastModifiedDate = '-';
                 }
-                f.lastModifiedDate = dateStr || '-';
             }
         }
     });
@@ -1251,7 +1270,7 @@ function renderDiffTable() {
         } else if (currentSortColumn === 'lastModifiedByName') {
             valA = a.lastModifiedByName || ''; valB = b.lastModifiedByName || '';
         } else if (currentSortColumn === 'lastModifiedDate') {
-            valA = a.lastModifiedDate || ''; valB = b.lastModifiedDate || '';
+            valA = a.lastModifiedDateRaw || ''; valB = b.lastModifiedDateRaw || '';
         }
 
         if (valA < valB) return currentSortDirection === 'asc' ? -1 : 1;

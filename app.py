@@ -36,6 +36,11 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def index():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
+@app.get("/.well-known/appspecific/com.chrome.devtools.json")
+async def chrome_devtools():
+    from fastapi.responses import Response
+    return Response(content="{}", media_type="application/json")
+
 class RetrieveRequest(BaseModel):
     instanceUrl: str
     sessionId: str
