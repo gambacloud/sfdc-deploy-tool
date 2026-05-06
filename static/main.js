@@ -561,11 +561,9 @@ async function fetchMetadata(instanceUrl, sessionId, xmlPayload, useFastCompare 
             body: JSON.stringify({ instanceUrl, sessionId, unpackagedXml: restrictedXml })
         }).then(async res => {
             if (!res.ok) throw new Error(`Proxy Error: ${await res.text()}`);
-            const soapStr = await res.text();
-            const base64 = extractZipFromSoap(soapStr);
             const mdZip = new JSZip();
-            await mdZip.loadAsync(base64, { base64: true });
-            
+            await mdZip.loadAsync(await res.arrayBuffer());
+
             // Merge into finalZip
             mdZip.forEach((relativePath, file) => {
                 finalZip.file(relativePath, file.async('arraybuffer'));

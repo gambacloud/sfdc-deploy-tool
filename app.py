@@ -1,9 +1,12 @@
 import os
+import base64
+import hashlib
 import httpx
 import asyncio
 import xml.etree.ElementTree as ET
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Header, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
@@ -15,19 +18,30 @@ import sys
 from cachetools import TTLCache
 
 if getattr(sys, 'frozen', False):
-    # Running in a PyInstaller bundle
     base_dir = sys._MEIPASS
 else:
-    # Running in normal Python environment
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
 static_dir = os.path.join(base_dir, "static")
 
-app = FastAPI()
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# ZIP cache: keyed by (instanceUrl, sha256(package_xml)), 2-minute TTL.
+# Covers rapid re-compares (e.g. target org almost never changes between iterations).
+_retrieve_cache: TTLCache = TTLCache(maxsize=10, ttl=120)
 
 # In-memory TTL cache for listMetadata (per org+types, 5-minute TTL)
 _list_metadata_cache: TTLCache = TTLCache(maxsize=200, ttl=300)
+
+_http_client: httpx.AsyncClient = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _http_client
+    _http_client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
+    yield
+    await _http_client.aclose()
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Mount frontend files
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -38,7 +52,6 @@ def index():
 
 @app.get("/.well-known/appspecific/com.chrome.devtools.json")
 async def chrome_devtools():
-    from fastapi.responses import Response
     return Response(content="{}", media_type="application/json")
 
 class RetrieveRequest(BaseModel):
@@ -53,22 +66,33 @@ def get_soap_headers():
         "SOAPAction": '""'
     }
 
+_SOAP_NS = {
+    'soapenv': 'http://schemas.xmlsoap.org/soap/envelope/',
+    'met': 'http://soap.sforce.com/2006/04/metadata'
+}
+
 @app.post("/api/proxy/retrieve")
 async def retrieve_metadata(req: RetrieveRequest):
     """
-    Accepts SFDC credentials/session IDs. Calls the Salesforce Metadata API retrieve(). 
-    Streams the resulting base64 ZIP file directly back to the frontend without storing it.
+    Calls the Salesforce Metadata API retrieve(), polls until done, then returns
+    the result as a raw binary ZIP (application/zip) instead of base64-in-SOAP XML.
+    Results are cached for 2 minutes by (instanceUrl, package_xml hash).
     """
+    import re
     instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
+
+    cache_key = (instance_url, hashlib.sha256(req.unpackagedXml.encode()).hexdigest())
+    if cache_key in _retrieve_cache:
+        zip_bytes = _retrieve_cache[cache_key]
+        print(f"[RETRIEVE] Cache hit for {instance_url} ({len(zip_bytes):,} bytes)")
+        return Response(content=zip_bytes, media_type="application/zip")
+
     url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
     print(f"[RETRIEVE] Initiating metadata retrieve from {instance_url}...")
-    
-    import re
-    # Safely strip any leading XML declaration and rename Package element to met:unpackaged
+
     clean_xml = re.sub(r'<\?xml.*?\?>', '', req.unpackagedXml).strip()
     clean_xml = clean_xml.replace('<Package', '<met:unpackaged').replace('</Package>', '</met:unpackaged>')
 
-    # 1. Initiate Retrieve
     retrieve_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
        <soapenv:Header>
@@ -86,22 +110,15 @@ async def retrieve_metadata(req: RetrieveRequest):
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-        init_resp = await client.post(url, content=retrieve_soap, headers=get_soap_headers())
-        if init_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"Failed to initiate retrieve: {init_resp.text}")
-        
-        # Parse job ID
-        root = ET.fromstring(init_resp.text)
-        # Find asyncId. Note namespaces.
-        namespaces = {'soapenv': 'http://schemas.xmlsoap.org/soap/envelope/', 'met': 'http://soap.sforce.com/2006/04/metadata'}
-        body = root.find('soapenv:Body', namespaces)
-        retrieve_response = body.find('met:retrieveResponse', namespaces)
-        result = retrieve_response.find('met:result', namespaces)
-        job_id = result.find('met:id', namespaces).text
-        print(f"[RETRIEVE] Job queued successfully. Job ID: {job_id}. Polling for completion...")
+    init_resp = await _http_client.post(url, content=retrieve_soap, headers=get_soap_headers())
+    if init_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Failed to initiate retrieve: {init_resp.text}")
 
-    # 2. Poll for status and stream result back
+    root = ET.fromstring(init_resp.text)
+    body = root.find('soapenv:Body', _SOAP_NS)
+    job_id = body.find('met:retrieveResponse/met:result/met:id', _SOAP_NS).text
+    print(f"[RETRIEVE] Job queued successfully. Job ID: {job_id}. Polling for completion...")
+
     check_rx_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
        <soapenv:Header>
@@ -117,25 +134,38 @@ async def retrieve_metadata(req: RetrieveRequest):
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    async def poll_and_stream():
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-            while True:
-                async with client.stream("POST", url, content=check_rx_soap, headers=get_soap_headers()) as resp:
-                    chunks = []
-                    async for chunk in resp.aiter_text():
-                        chunks.append(chunk)
-                    full_response = "".join(chunks)
+    while True:
+        poll_resp = await _http_client.post(url, content=check_rx_soap, headers=get_soap_headers())
+        text = poll_resp.text
 
-                    if "status>InProgress" in full_response or "status>Pending" in full_response:
-                        print(f"[RETRIEVE] Job {job_id} is still in progress...")
-                        await asyncio.sleep(1)
-                        continue
+        if "status>InProgress" in text or "status>Pending" in text:
+            print(f"[RETRIEVE] Job {job_id} is still in progress...")
+            await asyncio.sleep(1)
+            continue
 
-                    print(f"[RETRIEVE] Job {job_id} finished polling. Streaming results to browser.")
-                    yield full_response.encode('utf-8')
-                    break
+        root = ET.fromstring(text)
+        body = root.find('soapenv:Body', _SOAP_NS)
 
-    return StreamingResponse(poll_and_stream(), media_type="text/xml")
+        fault = body.find('soapenv:Fault', _SOAP_NS)
+        if fault is not None:
+            raise HTTPException(status_code=400, detail=f"Retrieve SOAP fault: {fault.findtext('faultstring', default='Unknown error')}")
+
+        result = body.find('.//met:result', _SOAP_NS)
+        if result is None:
+            raise HTTPException(status_code=400, detail="No result node in retrieve response")
+
+        if result.findtext('met:success', namespaces=_SOAP_NS) == 'false':
+            error_msg = result.findtext('met:errorMessage', namespaces=_SOAP_NS) or 'Retrieve failed'
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        zip_b64 = result.findtext('met:zipFile', namespaces=_SOAP_NS)
+        if not zip_b64:
+            raise HTTPException(status_code=400, detail="No ZIP file in retrieve response")
+
+        zip_bytes = base64.b64decode(zip_b64)
+        _retrieve_cache[cache_key] = zip_bytes
+        print(f"[RETRIEVE] Job {job_id} complete. Cached and returning {len(zip_bytes):,} binary bytes.")
+        return Response(content=zip_bytes, media_type="application/zip")
 
 
 class DeployRequest(BaseModel):
@@ -150,16 +180,16 @@ class DeployRequest(BaseModel):
 @app.post("/api/proxy/deploy")
 async def deploy_metadata(req: DeployRequest):
     """
-    Accepts a base64 encoded ZIP from the frontend and forwards it to the Salesforce Metadata API deploy() endpoint. 
+    Accepts a base64 encoded ZIP from the frontend and forwards it to the Salesforce Metadata API deploy() endpoint.
     Returns the Job ID.
     """
     instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
     url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
-    
+
     tests_xml = ""
     for test in req.testClasses:
         tests_xml += f"<met:runTests>{test}</met:runTests>\n"
-        
+
     deploy_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
        <soapenv:Header>
@@ -185,30 +215,25 @@ async def deploy_metadata(req: DeployRequest):
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    # We do not use stream() here because we just want to return the jobId parsed from the response
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-        print(f"[DEPLOY] Initiating deployment to {instance_url} (CheckOnly: {req.checkOnly}, TestLevel: {req.testLevel})...")
-        resp = await client.post(url, content=deploy_soap, headers=get_soap_headers())
-        if resp.status_code != 200:
-            print(f"[DEPLOY] Failed! {resp.text}")
-            raise HTTPException(status_code=400, detail=f"Deploy failed: {resp.text}")
-            
-        root = ET.fromstring(resp.text)
-        namespaces = {'soapenv': 'http://schemas.xmlsoap.org/soap/envelope/', 'met': 'http://soap.sforce.com/2006/04/metadata'}
-        body = root.find('soapenv:Body', namespaces)
-        deploy_response = body.find('met:deployResponse', namespaces)
-        result = deploy_response.find('met:result', namespaces)
-        job_id = result.find('met:id', namespaces).text
-        
-        print(f"[DEPLOY] Job queued successfully. Job ID: {job_id}.")
-        return {"jobId": job_id}
+    print(f"[DEPLOY] Initiating deployment to {instance_url} (CheckOnly: {req.checkOnly}, TestLevel: {req.testLevel})...")
+    resp = await _http_client.post(url, content=deploy_soap, headers=get_soap_headers())
+    if resp.status_code != 200:
+        print(f"[DEPLOY] Failed! {resp.text}")
+        raise HTTPException(status_code=400, detail=f"Deploy failed: {resp.text}")
+
+    root = ET.fromstring(resp.text)
+    body = root.find('soapenv:Body', _SOAP_NS)
+    job_id = body.find('met:deployResponse/met:result/met:id', _SOAP_NS).text
+
+    print(f"[DEPLOY] Job queued successfully. Job ID: {job_id}.")
+    return {"jobId": job_id}
 
 
 @app.get("/api/proxy/status/{job_id}")
 async def check_deploy_status(
-    job_id: str, 
-    instanceUrl: str = Query(...), 
-    sessionId: str = Query(...), 
+    job_id: str,
+    instanceUrl: str = Query(...),
+    sessionId: str = Query(...),
     apiVersion: str = Query("58.0")
 ):
     """
@@ -217,7 +242,7 @@ async def check_deploy_status(
     """
     instance_url = instanceUrl if instanceUrl.startswith("http") else f"https://{instanceUrl}"
     url = f"{instance_url}/services/Soap/m/{apiVersion}"
-    
+
     status_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
        <soapenv:Header>
@@ -234,10 +259,10 @@ async def check_deploy_status(
     </soapenv:Envelope>"""
 
     async def stream_response():
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-            async with client.stream("POST", url, content=status_soap, headers=get_soap_headers()) as r:
-                async for chunk in r.aiter_bytes():
-                    yield chunk
+        async with _http_client.stream("POST", url, content=status_soap, headers=get_soap_headers()) as r:
+            async for chunk in r.aiter_bytes():
+                yield chunk
+
     return StreamingResponse(stream_response(), media_type="text/xml")
 
 
@@ -260,11 +285,11 @@ async def list_metadata(req: ListMetadataRequest):
 
     instance_url = req.instanceUrl if req.instanceUrl.startswith("http") else f"https://{req.instanceUrl}"
     url = f"{instance_url}/services/Soap/m/{req.apiVersion}"
-    
+
     queries_xml = ""
     for t in req.types[:3]:
         queries_xml += f"<met:queries><met:type>{t}</met:type></met:queries>\n"
-        
+
     list_soap = f"""<?xml version="1.0" encoding="utf-8"?>
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">
        <soapenv:Header>
@@ -279,35 +304,32 @@ async def list_metadata(req: ListMetadataRequest):
        </soapenv:Body>
     </soapenv:Envelope>"""
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-        resp = await client.post(url, content=list_soap, headers=get_soap_headers())
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"listMetadata failed: {resp.text}")
-            
-        root = ET.fromstring(resp.text)
-        namespaces = {'soapenv': 'http://schemas.xmlsoap.org/soap/envelope/', 'met': 'http://soap.sforce.com/2006/04/metadata'}
-        body = root.find('soapenv:Body', namespaces)
-        
-        # Salesforce SOAP faults check just in case HTTP status is 200 but there's a fault
-        fault = body.find('soapenv:Fault', namespaces)
-        if fault is not None:
-             faultstring = fault.findtext('faultstring', default="", namespaces=namespaces)
-             raise HTTPException(status_code=400, detail=f"listMetadata SOAP fault: {faultstring}")
+    resp = await _http_client.post(url, content=list_soap, headers=get_soap_headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"listMetadata failed: {resp.text}")
 
-        list_response = body.find('met:listMetadataResponse', namespaces)
-        
-        results = []
-        if list_response is not None:
-            for res in list_response.findall('met:result', namespaces):
-                results.append({
-                    "fullName": res.findtext('met:fullName', default="", namespaces=namespaces),
-                    "type": res.findtext('met:type', default="", namespaces=namespaces),
-                    "lastModifiedByName": res.findtext('met:lastModifiedByName', default="", namespaces=namespaces),
-                    "lastModifiedDate": res.findtext('met:lastModifiedDate', default="", namespaces=namespaces)
-                })
-        result = {"result": results}
-        _list_metadata_cache[cache_key] = result
-        return result
+    root = ET.fromstring(resp.text)
+    body = root.find('soapenv:Body', _SOAP_NS)
+
+    fault = body.find('soapenv:Fault', _SOAP_NS)
+    if fault is not None:
+         faultstring = fault.findtext('faultstring', default="")
+         raise HTTPException(status_code=400, detail=f"listMetadata SOAP fault: {faultstring}")
+
+    list_response = body.find('met:listMetadataResponse', _SOAP_NS)
+
+    results = []
+    if list_response is not None:
+        for res in list_response.findall('met:result', _SOAP_NS):
+            results.append({
+                "fullName": res.findtext('met:fullName', default="", namespaces=_SOAP_NS),
+                "type": res.findtext('met:type', default="", namespaces=_SOAP_NS),
+                "lastModifiedByName": res.findtext('met:lastModifiedByName', default="", namespaces=_SOAP_NS),
+                "lastModifiedDate": res.findtext('met:lastModifiedDate', default="", namespaces=_SOAP_NS)
+            })
+    result = {"result": results}
+    _list_metadata_cache[cache_key] = result
+    return result
 
 
 # --- REST API Proxy (Standard & Tooling) ---
@@ -327,20 +349,19 @@ async def standard_query(instanceUrl: str, sessionId: str, q: str):
     }
 
     all_records = []
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-        res = await client.get(url, params={"q": q}, headers=headers)
+    res = await _http_client.get(url, params={"q": q}, headers=headers)
+    if res.status_code != 200:
+        raise HTTPException(status_code=res.status_code, detail=res.text)
+    data = res.json()
+    all_records.extend(data.get("records", []))
+
+    while not data.get("done", True) and data.get("nextRecordsUrl"):
+        next_url = f"{instance_url}{data['nextRecordsUrl']}"
+        res = await _http_client.get(next_url, headers=headers)
         if res.status_code != 200:
             raise HTTPException(status_code=res.status_code, detail=res.text)
         data = res.json()
         all_records.extend(data.get("records", []))
-
-        while not data.get("done", True) and data.get("nextRecordsUrl"):
-            next_url = f"{instance_url}{data['nextRecordsUrl']}"
-            res = await client.get(next_url, headers=headers)
-            if res.status_code != 200:
-                raise HTTPException(status_code=res.status_code, detail=res.text)
-            data = res.json()
-            all_records.extend(data.get("records", []))
 
     data["records"] = all_records
     data["done"] = True
@@ -353,7 +374,7 @@ async def tooling_query(instanceUrl: str, sessionId: str, q: str):
     """Executes a SOQL query against the Salesforce Tooling API"""
     if not instanceUrl or not sessionId or not q:
         raise HTTPException(status_code=400, detail="Missing instanceUrl, sessionId, or query 'q'")
-        
+
     instance_url = instanceUrl.rstrip('/')
     instance_url = instance_url if instance_url.startswith("http") else f"https://{instance_url}"
     url = f"{instance_url}/services/data/v58.0/tooling/query"
@@ -361,14 +382,11 @@ async def tooling_query(instanceUrl: str, sessionId: str, q: str):
         "Authorization": f"Bearer {sessionId}",
         "Accept": "application/json"
     }
-    
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-        res = await client.get(url, params={"q": q}, headers=headers)
-        
-        if res.status_code != 200:
-            raise HTTPException(status_code=res.status_code, detail=res.text)
-            
-        return res.json()
+
+    res = await _http_client.get(url, params={"q": q}, headers=headers)
+    if res.status_code != 200:
+        raise HTTPException(status_code=res.status_code, detail=res.text)
+    return res.json()
 
 
 # --- SFDX CLI Integration (Org Manager) ---
@@ -376,9 +394,7 @@ async def tooling_query(instanceUrl: str, sessionId: str, q: str):
 async def run_cli_command(command: str) -> tuple[int, str, str]:
     """Runs a shell command asynchronously in a thread and returns exit code, stdout, stderr"""
     loop = asyncio.get_event_loop()
-    
-    # Ensure standard Salesforce CLI install paths are in the environment PATH
-    import os
+
     env = os.environ.copy()
     sf_paths = [
         r"C:\Program Files\sf\bin",
@@ -389,7 +405,7 @@ async def run_cli_command(command: str) -> tuple[int, str, str]:
         if p not in current_path:
             current_path = p + os.pathsep + current_path
     env["PATH"] = current_path
-    
+
     def _run():
         return subprocess.run(
             command,
@@ -407,11 +423,11 @@ async def check_sfdx_status():
     code, stdout, _ = await run_cli_command("sf --version")
     if code == 0:
         return {"installed": True, "cli": "sf", "version": stdout.strip()}
-    
+
     code, stdout, _ = await run_cli_command("sfdx --version")
     if code == 0:
         return {"installed": True, "cli": "sfdx", "version": stdout.strip()}
-        
+
     return {"installed": False}
 
 @app.get("/api/sfdx/orgs")
@@ -419,12 +435,11 @@ async def list_orgs():
     """Lists authorized orgs using sf org list"""
     code, stdout, stderr = await run_cli_command("sf org list --json")
     if code != 0:
-        # Fallback to sfdx
         code, stdout, stderr = await run_cli_command("sfdx force:org:list --json --clean")
-        
+
     if code != 0:
         raise HTTPException(status_code=500, detail=f"Failed to list orgs. Is the CLI installed? {stderr}")
-        
+
     try:
         data = json.loads(stdout)
         import pprint
@@ -442,12 +457,12 @@ async def login_org(req: LoginRequest):
     cmd = f"sf org login web --alias {req.alias}"
     if req.instanceUrl:
         cmd += f" --instance-url {req.instanceUrl}"
-        
+
     code, stdout, stderr = await run_cli_command(cmd)
-    
+
     if code != 0:
          raise HTTPException(status_code=400, detail=f"Login failed: {stderr}")
-         
+
     return {"success": True, "message": stdout}
 
 class OpenRequest(BaseModel):
@@ -466,10 +481,10 @@ async def get_org_token(target_org: str):
     code, stdout, stderr = await run_cli_command(f"sf org display --target-org {target_org} --json")
     if code != 0:
         code, stdout, stderr = await run_cli_command(f"sfdx force:org:display --targetusername {target_org} --json")
-        
+
     if code != 0:
          raise HTTPException(status_code=400, detail=f"Failed to fetch token: {stderr}")
-         
+
     try:
         data = json.loads(stdout)
         result = data.get("result", {})
@@ -481,4 +496,3 @@ async def get_org_token(target_org: str):
         }
     except json.JSONDecodeError:
          raise HTTPException(status_code=500, detail="Failed to parse CLI output")
-
