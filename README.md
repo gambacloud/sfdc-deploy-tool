@@ -11,6 +11,7 @@ Compare, validate, and deploy Salesforce metadata between orgs. No code leaves y
 - 📜 **Deployment History** — Browse past deployments and re-view diffs
 - 🔬 **Coverage Viewer** — Line-level test coverage overlay with copyable report
 - 🔍 **Dependency Analyzer** — Check what depends on a component before you touch it
+- 🧠 **Metadata Knowledge Base** — Drag in a metadata ZIP, get an LLM-ready Markdown doc for NotebookLM (see below)
 
 ## Getting Started
 
@@ -57,3 +58,10 @@ Open `http://localhost:8000`
 | Filtering & Sorting | Search, sort columns, filter by status |
 | Manifest Builder | Visual metadata type picker with presets |
 | Dark Mode | Full dark theme |
+| Metadata Knowledge Base 🧠 | Drag a metadata ZIP into `/metadata-kb` → get a Markdown knowledge base for NotebookLM |
+
+## Metadata Knowledge Base
+
+`/metadata-kb` is a standalone page: drag in a Salesforce Metadata API ZIP (objects, formulas, flows, Apex classes/triggers, LWC, Aura, profiles) and it parses everything **entirely in your browser** (a Web Worker + [JSZip](https://stuk.github.io/jszip/) + [fast-xml-parser](https://github.com/NaturalIntelligence/fast-xml-parser) — nothing is uploaded). You get a Markdown document — with a **Download** button and a **Copy to Clipboard** button — ready to paste into [NotebookLM](https://notebooklm.google.com) or any other LLM as a knowledge source.
+
+The parsing logic is adapted from [`sfdc-metadata-visualizer`](https://github.com/gambacloud/sfdc-metadata-visualizer)'s `parser/parsers/*.js`, vendored into `static/metadata-kb-parsers.js` as dependency-free browser JS (plus a new Profile permissions parser not in that repo).

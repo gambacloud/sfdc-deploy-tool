@@ -50,6 +50,10 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def index():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
+@app.get("/metadata-kb")
+def metadata_kb():
+    return FileResponse(os.path.join(static_dir, "metadata-kb.html"))
+
 @app.get("/.well-known/appspecific/com.chrome.devtools.json")
 async def chrome_devtools():
     return Response(content="{}", media_type="application/json")
