@@ -57,3 +57,9 @@ Open `http://localhost:8000`
 | Filtering & Sorting | Search, sort columns, filter by status |
 | Manifest Builder | Visual metadata type picker with presets |
 | Dark Mode | Full dark theme |
+
+## Related tools
+
+- [salesforce-debugtool](https://github.com/gambacloud/salesforce-debugtool) — manage, review, and analyze Salesforce debug logs
+- [sfdc-flow-tool](https://github.com/gambacloud/sfdc-flow-tool) — describe a Salesforce flow in plain language and build it
+- [sfdc-log-analyzer](https://github.com/gambacloud/sfdc-log-analyzer) — Salesforce debug log analyzer
